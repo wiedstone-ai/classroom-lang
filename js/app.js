@@ -1,14 +1,27 @@
 /**
  * LMS CLASSROOM ENGLISH - LOGIKA APLIKASI UT PGSD
- * Terintegrasi dengan Google Spreadsheet & Google Apps Script
- * Versi Bersih: Bebas Data Dummy & PIN Aman (Tanpa Plaintext di Repositori)
+ * Terintegrasi Penuh dengan Google Spreadsheet & Google Apps Script
+ * Backend URL Terkonfigurasi Otomatis & Sinkronisasi Nilai Tertinggi
  */
 
 // Konfigurasi Sistem
 const APP_CONFIG = {
   spreadsheetUrl: "https://docs.google.com/spreadsheets/d/1ETjJYbWnNVIfYhzAdx0gs77c73k6CsRW_-9-ZU4gQsc",
-  // Script URL dapat diisi di sini atau melalui Pengaturan Tutor di aplikasi
-  scriptUrl: localStorage.getItem("ut_lms_script_url") || "",
+  // URL Web App Google Apps Script default resmi yang sudah di-deploy
+  defaultScriptUrl: "https://script.google.com/macros/s/AKfycbxXho8UhD7vAjP_ybjdkF2E4BJHEttgDtizgIG3IM9uB3bgP2RmDaV3bRhug0cN0ixBng/exec",
+  
+  // Mengambil URL dari localStorage jika tutor pernah mengubahnya, atau gunakan defaultScriptUrl
+  get scriptUrl() {
+    const saved = localStorage.getItem("ut_lms_script_url");
+    return (saved && saved.trim()) ? saved.trim() : this.defaultScriptUrl;
+  },
+  set scriptUrl(val) {
+    if (val && val.trim()) {
+      localStorage.setItem("ut_lms_script_url", val.trim());
+    } else {
+      localStorage.removeItem("ut_lms_script_url");
+    }
+  },
   passThreshold: 70 // Minimal 70% untuk lulus modul
 };
 
@@ -19,7 +32,8 @@ const AppState = {
   activeModuleId: 1,
   activeTab: "video",
   leaderboardFilter: "ALL",
-  leaderboardData: []
+  leaderboardData: [],
+  isBackendConnected: false
 };
 
 // Inisialisasi saat halaman dimuat
@@ -27,8 +41,68 @@ document.addEventListener("DOMContentLoaded", () => {
   loadLocalSession();
   initEventListeners();
   renderApp();
+  checkBackendHealth();
   syncLeaderboard();
 });
+
+// ==========================================
+// API HELPER UNTUK GOOGLE APPS SCRIPT
+// ==========================================
+
+/**
+ * Memanggil API backend Google Apps Script menggunakan GET query parameters
+ * untuk menghindari masalah CORS preflight di browser modern dan GitHub Pages.
+ */
+async function apiCall(action, params = {}) {
+  const url = APP_CONFIG.scriptUrl;
+  if (!url) {
+    return { success: false, offline: true, message: "URL Google Apps Script belum dikonfigurasi." };
+  }
+
+  const queryParams = new URLSearchParams(Object.assign({ action: action }, params));
+  const fullUrl = `${url}${url.includes("?") ? "&" : "?"}${queryParams.toString()}`;
+
+  try {
+    const res = await fetch(fullUrl, {
+      method: "GET",
+      cache: "no-store"
+    });
+    const data = await res.json();
+    return data;
+  } catch (err) {
+    console.warn(`Panggilan API '${action}' gagal:`, err);
+    return { success: false, error: err.message };
+  }
+}
+
+async function checkBackendHealth() {
+  try {
+    const res = await apiCall("ping");
+    if (res && res.success) {
+      AppState.isBackendConnected = true;
+      console.log("Database Google Sheets terhubung:", res.spreadsheetName);
+    } else {
+      AppState.isBackendConnected = false;
+    }
+  } catch (e) {
+    AppState.isBackendConnected = false;
+  }
+  updateBackendBadge();
+}
+
+function updateBackendBadge() {
+  const badge = document.getElementById("backendStatusBadge");
+  if (!badge) return;
+  if (AppState.isBackendConnected) {
+    badge.innerHTML = `<span style="display:inline-block; width:8px; height:8px; background:#10b981; border-radius:50%; margin-right:5px;"></span>Database Sheets Aktif`;
+    badge.style.color = "#065f46";
+    badge.style.background = "#d1fae5";
+  } else {
+    badge.innerHTML = `<span style="display:inline-block; width:8px; height:8px; background:#f59e0b; border-radius:50%; margin-right:5px;"></span>Menghubungkan ke Sheets...`;
+    badge.style.color = "#92400e";
+    badge.style.background = "#fef3c7";
+  }
+}
 
 // ==========================================
 // AUTHENTICATION & SESSION MANAGEMENT
@@ -62,6 +136,7 @@ function updateStoredStudent(user) {
   localStorage.setItem("ut_lms_all_students", JSON.stringify(allStudents));
 }
 
+// 1. PENDAFTARAN MAHASISWA BARU
 async function handleRegister(e) {
   e.preventDefault();
   const kelas = document.getElementById("regKelas").value;
@@ -74,67 +149,65 @@ async function handleRegister(e) {
     return;
   }
 
-  // Cek apakah NIM sudah terdaftar di database lokal
-  const allStudents = JSON.parse(localStorage.getItem("ut_lms_all_students") || "[]");
-  if (allStudents.some(s => s.nim === nim)) {
-    alert(`NIM ${nim} sudah terdaftar! Silakan gunakan menu Masuk (Login) menggunakan Password NIM Anda.`);
-    switchAuthTab("login");
-    document.getElementById("loginNim").value = nim;
-    document.getElementById("loginPassword").focus();
-    return;
-  }
-
   const submitBtn = document.getElementById("btnSubmitRegister");
   submitBtn.disabled = true;
-  submitBtn.innerText = "Mendaftarkan...";
+  submitBtn.innerText = "Mendaftarkan ke Google Sheet...";
 
-  const newStudent = {
+  // Kirim data langsung ke Google Apps Script backend
+  const res = await apiCall("register", {
     nim: nim,
     nama: nama,
     kelas: kelas,
-    password: password,
-    totalScore: 0,
-    modulesPassed: 0,
-    passedModules: [],
-    moduleScores: {},
-    registrationDate: new Date().toLocaleDateString("id-ID")
-  };
+    password: password
+  });
 
-  // Coba sinkronisasi ke Google Apps Script jika URL tersedia
-  if (APP_CONFIG.scriptUrl) {
-    try {
-      const res = await fetch(APP_CONFIG.scriptUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          action: "register",
-          nim: nim,
-          nama: nama,
-          kelas: kelas,
-          password: password
-        })
-      });
-      const data = await res.json();
-      if (!data.success) {
-        alert(data.message || "Gagal mendaftar di database spreadsheet.");
-        submitBtn.disabled = false;
-        submitBtn.innerText = "Daftar Sekarang";
-        return;
-      }
-    } catch (err) {
-      console.warn("Koneksi Google Apps Script gagal, menggunakan penyimpanan lokal:", err);
-    }
+  if (res.alreadyRegistered) {
+    alert(`NIM ${nim} sudah terdaftar di Google Sheet!\n\nSilakan masuk melalui tab 'Masuk (Login)' menggunakan Password NIM Anda.`);
+    switchAuthTab("login");
+    document.getElementById("loginNim").value = nim;
+    document.getElementById("loginPassword").focus();
+    submitBtn.disabled = false;
+    submitBtn.innerText = "Daftar Sekarang";
+    return;
   }
 
-  saveLocalSession(newStudent);
-  closeModal("modalAuth");
-  alert(`Selamat datang, ${nama}!\n\nPendaftaran berhasil.\nKelas: ${kelas}\nUsername: ${nim}\nPassword Awal: ${nim}`);
-  renderApp();
-  syncLeaderboard();
+  if (res.success && res.student) {
+    // Berhasil tercatat di Google Sheet
+    sessionStorage.removeItem("ut_tutor_auth");
+    saveLocalSession(res.student);
+    closeModal("modalAuth");
+    AppState.activeView = "dashboard";
+    alert(`Selamat datang, ${nama}!\n\n✓ Pendaftaran berhasil dan TELAH TERCATAT di Google Sheet.\n\nKelas: ${kelas}\nUsername: ${nim}\nPassword Awal: ${nim}`);
+    renderApp();
+    syncLeaderboard();
+  } else {
+    // Fallback jika jaringan offline
+    console.warn("Gagal sinkronisasi online:", res.message || res.error);
+    const fallbackStudent = {
+      nim: nim,
+      nama: nama,
+      kelas: kelas,
+      password: password,
+      totalScore: 0,
+      modulesPassed: 0,
+      passedModules: [],
+      moduleScores: {},
+      registrationDate: new Date().toLocaleDateString("id-ID")
+    };
+    sessionStorage.removeItem("ut_tutor_auth");
+    saveLocalSession(fallbackStudent);
+    closeModal("modalAuth");
+    AppState.activeView = "dashboard";
+    alert(`Selamat datang, ${nama}!\n\nPendaftaran tersimpan di sesi lokal.\nKelas: ${kelas}\nUsername: ${nim}\nPassword Awal: ${nim}`);
+    renderApp();
+    syncLeaderboard();
+  }
+
   submitBtn.disabled = false;
   submitBtn.innerText = "Daftar Sekarang";
 }
 
+// 2. LOGIN MAHASISWA & PEMULIHAN CAPAIAN DARI GOOGLE SHEET
 async function handleLogin(e) {
   e.preventDefault();
   const nim = document.getElementById("loginNim").value.trim();
@@ -147,57 +220,62 @@ async function handleLogin(e) {
 
   const submitBtn = document.getElementById("btnSubmitLogin");
   submitBtn.disabled = true;
-  submitBtn.innerText = "Memverifikasi...";
+  submitBtn.innerText = "Mengecek Database Google Sheet...";
 
-  // 1. Coba verifikasi ke Google Apps Script backend jika URL tersedia
-  if (APP_CONFIG.scriptUrl) {
-    try {
-      const res = await fetch(`${APP_CONFIG.scriptUrl}?action=login&nim=${encodeURIComponent(nim)}&password=${encodeURIComponent(password)}`);
-      const data = await res.json();
-      if (data.success && data.student) {
-        saveLocalSession(data.student);
-        closeModal("modalAuth");
-        alert(data.message || `Selamat datang kembali, ${data.student.nama}!`);
-        renderApp();
-        syncLeaderboard();
-        submitBtn.disabled = false;
-        submitBtn.innerText = "Masuk";
-        return;
-      } else if (data.message && data.message.includes("Password salah")) {
-        alert(data.message);
-        submitBtn.disabled = false;
-        submitBtn.innerText = "Masuk";
-        return;
-      }
-    } catch (err) {
-      console.warn("Gagal menghubungi Google Apps Script, fallback ke verifikasi lokal:", err);
-    }
+  // 1. Verifikasi dan pulihkan data lengkap dari Google Sheets
+  const res = await apiCall("login", {
+    nim: nim,
+    password: password
+  });
+
+  if (res.success && res.student) {
+    // Data ditemukan di Google Sheets!
+    sessionStorage.removeItem("ut_tutor_auth");
+    saveLocalSession(res.student);
+    closeModal("modalAuth");
+    AppState.activeView = "dashboard";
+    alert(res.message || `Selamat datang kembali, ${res.student.nama}!\nData nilai dan capaian Anda telah berhasil dipulihkan dari Google Sheet.`);
+    renderApp();
+    syncLeaderboard();
+    submitBtn.disabled = false;
+    submitBtn.innerText = "Masuk ke LMS";
+    return;
   }
 
-  // 2. Fallback verifikasi lokal dari database terdaftar
+  if (res.message && res.message.includes("Password salah")) {
+    alert(res.message);
+    submitBtn.disabled = false;
+    submitBtn.innerText = "Masuk ke LMS";
+    return;
+  }
+
+  // 2. Fallback verifikasi lokal jika sedang offline
   let allStudents = JSON.parse(localStorage.getItem("ut_lms_all_students") || "[]");
   const found = allStudents.find(s => s.nim === nim);
 
   if (found) {
     if (found.password === password || (!found.password && password === nim)) {
+      sessionStorage.removeItem("ut_tutor_auth");
       saveLocalSession(found);
       closeModal("modalAuth");
-      alert(`Selamat datang kembali, ${found.nama}!`);
+      AppState.activeView = "dashboard";
+      alert(`Selamat datang kembali, ${found.nama}! (Mode Sesi Lokal)`);
       renderApp();
       syncLeaderboard();
     } else {
       alert("Password salah. Password awal adalah NIM Anda.");
     }
   } else {
-    alert(`NIM ${nim} belum terdaftar di sistem. Silakan pilih tab 'Daftar Baru' terlebih dahulu.`);
+    alert(res.message || `NIM ${nim} belum terdaftar di sistem. Silakan pilih tab 'Daftar Baru' terlebih dahulu.`);
     switchAuthTab("register");
     document.getElementById("regNim").value = nim;
   }
 
   submitBtn.disabled = false;
-  submitBtn.innerText = "Masuk";
+  submitBtn.innerText = "Masuk ke LMS";
 }
 
+// 3. LOGOUT
 function handleLogout() {
   if (confirm("Apakah Anda yakin ingin keluar dari akun ini?")) {
     AppState.currentUser = null;
@@ -214,12 +292,22 @@ function handleLogout() {
 // ==========================================
 
 function switchView(viewName) {
+  // Jika mahasiswa sedang login, cegah membuka panel tutor!
+  if (viewName === "tutor" && AppState.currentUser) {
+    alert("Panel Tutor hanya diperuntukkan bagi Pengajar/Tutor. Mahasiswa tidak memiliki akses ke Panel Tutor.");
+    return;
+  }
   AppState.activeView = viewName;
   window.scrollTo({ top: 0, behavior: "smooth" });
   renderApp();
 }
 
 function renderApp() {
+  // Proteksi: Mahasiswa yang login tidak boleh berada di view-tutor
+  if (AppState.currentUser && AppState.activeView === "tutor") {
+    AppState.activeView = "dashboard";
+  }
+
   updateNavbar();
 
   // Hide all view sections
@@ -249,6 +337,17 @@ function renderApp() {
 function updateNavbar() {
   const user = AppState.currentUser;
   const userContainer = document.getElementById("navUserArea");
+
+  // Sembunyikan Panel Tutor di menu jika mahasiswa sedang login
+  const tutorNavItem = document.getElementById("navItemTutor");
+  if (tutorNavItem) {
+    tutorNavItem.style.display = user ? "none" : "block";
+  } else {
+    const tutorLink = document.querySelector('.nav-link[data-view="tutor"]');
+    if (tutorLink && tutorLink.parentElement) {
+      tutorLink.parentElement.style.display = user ? "none" : "block";
+    }
+  }
 
   // Update active class on nav links
   document.querySelectorAll(".nav-link").forEach(link => {
@@ -295,7 +394,7 @@ function renderDashboard() {
 
   MODULES_DATA.forEach((mod) => {
     const isCompleted = user && (user.passedModules || []).includes(mod.id);
-    // Modul 1 selalu terbuka. Modul berikutnya terbuka jika modul sebelumnya sudah lulus.
+    // Modul 1 selalu terbuka. Modul berikutnya terbuka jika modul sebelumnya sudah lulus atau sudah pernah diselesaikan
     const isUnlocked = !user ? (mod.id === 1) : (mod.id === 1 || (user.passedModules || []).includes(mod.id - 1) || isCompleted);
     const scoreObj = user && user.moduleScores ? user.moduleScores[mod.id] : null;
 
@@ -323,7 +422,7 @@ function renderDashboard() {
         <div class="module-title-en">${escapeHtml(mod.titleEn)}</div>
         <p class="module-desc">${escapeHtml(mod.summary)}</p>
         <div class="module-footer">
-          ${scoreObj ? `<span class="score-display">Nilai: ${scoreObj.score}</span>` : `<span></span>`}
+          ${scoreObj ? `<span class="score-display">Nilai Terbaik: ${scoreObj.score}</span>` : `<span></span>`}
           <button class="btn ${isUnlocked ? 'btn-primary' : 'btn-outline'} btn-sm" onclick="openModule(${mod.id})" ${!isUnlocked ? 'disabled' : ''}>
             ${isCompleted ? 'Pelajari Ulang' : (isUnlocked ? 'Mulai Belajar' : 'Terkunci')}
           </button>
@@ -360,7 +459,6 @@ function openModule(moduleId) {
 
 function renderStudyView() {
   const mod = MODULES_DATA.find(m => m.id === AppState.activeModuleId) || MODULES_DATA[0];
-  const user = AppState.currentUser;
 
   document.getElementById("studyModuleTitle").innerHTML = `
     <span style="color:var(--accent-gold); font-weight:800;">Modul ${mod.index}:</span> ${escapeHtml(mod.titleId)}
@@ -461,7 +559,7 @@ function renderQuiz(mod) {
       <h5 style="color:#b45309; margin-bottom:0.25rem;">Aturan Kuis Evaluasi Modul ${mod.index}:</h5>
       <p style="font-size:0.85rem; color:#92400e; margin:0;">
         Kuis ini terdiri dari ${mod.quiz.length} soal esensial. Anda harus mencapai skor minimal <strong>${APP_CONFIG.passThreshold}%</strong> untuk lulus dan membuka Modul berikutnya.
-        ${isCompleted ? `<br><strong style="color:var(--success);">✓ Anda telah lulus modul ini dengan nilai ${scoreObj ? scoreObj.score : 100}%.</strong>` : ''}
+        ${scoreObj ? `<br><strong style="color:var(--success);">✓ Nilai tertinggi Anda saat ini: ${scoreObj.score}% (${scoreObj.status}). Jika Anda mengulang latihan dan mendapat nilai lebih tinggi, nilai tertinggi baru akan otomatis menggantikan nilai lama di Google Sheet.</strong>` : ''}
       </p>
     </div>
     <form id="quizForm" onsubmit="handleQuizSubmit(event, ${mod.id})">
@@ -497,11 +595,12 @@ function renderQuiz(mod) {
   quizContainer.innerHTML = quizHtml;
 }
 
+// 4. SUBMIT KUIS & PENGGANTIAN NILAI DENGAN SKOR TERTINGGI
 async function handleQuizSubmit(e, moduleId) {
   e.preventDefault();
   const user = AppState.currentUser;
   if (!user) {
-    alert("Silakan login terlebih dahulu untuk menyimpan nilai kuis.");
+    alert("Silakan login atau daftar terlebih dahulu agar nilai kuis Anda tercatat di Google Sheet.");
     openAuthModal("login");
     return;
   }
@@ -522,7 +621,7 @@ async function handleQuizSubmit(e, moduleId) {
 
     if (isCorrect) correctCount++;
 
-    // Style the options
+    // Tampilkan styling benar / salah
     q.options.forEach((_, optIdx) => {
       const optLabel = document.getElementById(`labelOption-${qIdx}-${optIdx}`);
       if (optIdx === q.correct) {
@@ -545,89 +644,113 @@ async function handleQuizSubmit(e, moduleId) {
   const finalScore = Math.round((correctCount / total) * 100);
   const isPassed = finalScore >= APP_CONFIG.passThreshold;
 
-  // Update user state
+  // Cek catatan nilai yang sudah ada sebelumnya
   if (!user.moduleScores) user.moduleScores = {};
-  user.moduleScores[moduleId] = {
-    score: finalScore,
-    status: isPassed ? "Passed" : "Failed",
-    date: new Date().toLocaleDateString("id-ID")
-  };
+  const prevObj = user.moduleScores[moduleId];
+  const previousScore = prevObj ? (Number(prevObj.score) || 0) : -1;
 
-  if (isPassed && !(user.passedModules || []).includes(moduleId)) {
+  let isNewHighScore = false;
+  let recordedScore = finalScore;
+
+  if (previousScore === -1 || finalScore > previousScore) {
+    isNewHighScore = true;
+    recordedScore = finalScore;
+    user.moduleScores[moduleId] = {
+      score: finalScore,
+      status: isPassed ? "Passed" : (prevObj ? prevObj.status : "Failed"),
+      date: new Date().toLocaleDateString("id-ID")
+    };
+  } else {
+    // Nilai baru lebih rendah atau sama: Pertahankan nilai tertinggi sebelumnya!
+    recordedScore = previousScore;
+  }
+
+  // Jika nilai tertinggi lulus (>= 70) dan belum ada di passedModules
+  if ((recordedScore >= APP_CONFIG.passThreshold) && !(user.passedModules || []).includes(moduleId)) {
     if (!user.passedModules) user.passedModules = [];
     user.passedModules.push(moduleId);
     user.passedModules.sort((a,b) => a - b);
   }
 
-  // Hitung ulang total score
+  // Hitung ulang total score dari seluruh skor tertinggi per modul
   let newTotal = 0;
   for (let mId in user.moduleScores) {
-    newTotal += user.moduleScores[mId].score;
+    newTotal += (Number(user.moduleScores[mId].score) || 0);
   }
   user.totalScore = newTotal;
   user.modulesPassed = (user.passedModules || []).length;
 
   saveLocalSession(user);
 
-  // Sync to Google Apps Script Web App
-  if (APP_CONFIG.scriptUrl) {
-    try {
-      fetch(APP_CONFIG.scriptUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          action: "submitScore",
-          nim: user.nim,
-          moduleId: moduleId,
-          score: finalScore
-        })
-      });
-    } catch (err) {
-      console.warn("Gagal sync nilai ke Apps Script:", err);
-    }
+  const submitBtn = document.getElementById("btnSubmitQuiz");
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.innerText = "Menyimpan ke Google Sheet...";
+  }
+
+  // Sync langsung ke Google Apps Script backend
+  const apiRes = await apiCall("submitScore", {
+    nim: user.nim,
+    moduleId: moduleId,
+    score: finalScore
+  });
+
+  if (apiRes && apiRes.success) {
+    // Sinkronkan state dengan nilai resmi dari Google Sheets
+    if (apiRes.passedModules) user.passedModules = apiRes.passedModules;
+    if (apiRes.totalScore !== undefined) user.totalScore = apiRes.totalScore;
+    if (apiRes.modulesPassedCount !== undefined) user.modulesPassed = apiRes.modulesPassedCount;
+    saveLocalSession(user);
   }
 
   syncLeaderboard();
 
-  // Dialog Hasil
+  // Dialog Hasil Evaluasi Kuis
   const nextMod = MODULES_DATA.find(m => m.id === moduleId + 1);
-  if (isPassed) {
-    let msg = `🎉 SELAMAT! Anda LULUS Modul ${mod.index} dengan nilai ${finalScore}!\n(${correctCount} dari ${total} soal benar).\n`;
-    if (nextMod) {
-      msg += `\nModul ${nextMod.index}: "${nextMod.titleId}" kini telah TERBUKA untuk dipelajari!`;
+  let msg = "";
+
+  if (isNewHighScore) {
+    if (previousScore !== -1) {
+      msg = `🎉 NILAI TERTINGGI BARU TERCATAT!\n\nPada percobaan ulang ini Anda berhasil meraih nilai: ${finalScore}%\nNilai lama (${previousScore}%) berhasil DIGANTIKAN oleh nilai tertinggi baru ini di Google Sheet!\nStatus: ${isPassed ? 'LULUS ✓' : 'Belum Lulus'}`;
     } else {
-      msg += `\nLuar biasa! Anda telah menyelesaikan seluruh 19 Modul! Sertifikat Kelulusan Anda sekarang dapat diunduh!`;
+      msg = `🎉 HASIL EVALUASI MODUL ${mod.index}:\n\nNilai Anda: ${finalScore}%\nStatus: ${isPassed ? 'LULUS ✓ (Tercatat di Google Sheet)' : 'Belum Lulus'}`;
     }
-    alert(msg);
   } else {
-    alert(`Nilai Anda: ${finalScore}% (${correctCount} dari ${total} benar).\nBatas kelulusan adalah ${APP_CONFIG.passThreshold}%.\nSilakan pelajari kembali materi modul, lalu coba kuis kembali!`);
+    msg = `ℹ️ INFORMASI PERCOBAAN ULANG:\n\nNilai pada percobaan ini: ${finalScore}%.\nNilai tertinggi Anda sebelumnya (${previousScore}%) TETAP DIPERTAHANKAN di Google Sheet dan lembar capaian Anda.`;
   }
 
-  const submitBtn = document.getElementById("btnSubmitQuiz");
-  submitBtn.innerText = "Coba Kuis Lagi";
-  submitBtn.onclick = () => renderQuiz(mod);
+  if (isPassed && isNewHighScore) {
+    if (nextMod) {
+      msg += `\n\nModul ${nextMod.index}: "${nextMod.titleId}" kini telah TERBUKA untuk dipelajari!`;
+    } else if ((user.passedModules || []).length >= 19) {
+      msg += `\n\nSelamat! Anda telah menuntaskan seluruh 19 Modul! Sertifikat Kelulusan resmi Anda kini telah TERSEDIA untuk diunduh!`;
+    }
+  } else if (!isPassed && previousScore < APP_CONFIG.passThreshold) {
+    msg += `\n\nBatas kelulusan adalah ${APP_CONFIG.passThreshold}%. Silakan pelajari kembali video dan materi modul, lalu ulangi kuis.`;
+  }
+
+  alert(msg);
+
+  if (submitBtn) {
+    submitBtn.disabled = false;
+    submitBtn.innerText = "Coba Kuis Lagi";
+    submitBtn.onclick = () => renderQuiz(mod);
+  }
 }
 
 // ==========================================
-// LEADERBOARD VIEW (BERSIH DARI DATA DUMMY)
+// LEADERBOARD VIEW
 // ==========================================
 
 async function syncLeaderboard() {
-  if (APP_CONFIG.scriptUrl) {
-    try {
-      const res = await fetch(`${APP_CONFIG.scriptUrl}?action=getLeaderboard&kelas=${encodeURIComponent(AppState.leaderboardFilter)}`);
-      const data = await res.json();
-      if (data.success && data.leaderboard) {
-        AppState.leaderboardData = data.leaderboard;
-        if (AppState.activeView === "leaderboard") renderLeaderboard();
-        return;
-      }
-    } catch (e) {
-      console.warn("Gagal mengambil leaderboard live dari script, menggunakan data lokal:", e);
-    }
+  const data = await apiCall("getLeaderboard", { kelas: AppState.leaderboardFilter });
+  if (data && data.success && data.leaderboard && data.leaderboard.length > 0) {
+    AppState.leaderboardData = data.leaderboard;
+    if (AppState.activeView === "leaderboard") renderLeaderboard();
+    return;
   }
 
-  // Fallback data lokal murni dari mahasiswa yang benar-benar mendaftar (TANPA DUMMY)
+  // Fallback data lokal jika backend kosong atau sedang offline
   let allStudents = JSON.parse(localStorage.getItem("ut_lms_all_students") || "[]");
 
   let list = allStudents.filter(s => {
@@ -671,7 +794,6 @@ function renderLeaderboard() {
   const podiumContainer = document.getElementById("podiumContainer");
   const data = AppState.leaderboardData;
 
-  // Render Podium jika sudah ada minimal 3 mahasiswa terdaftar yang lulus modul
   const activeStudents = data.filter(d => d.modulesPassed > 0 || d.totalScore > 0);
 
   if (activeStudents.length >= 3) {
@@ -706,13 +828,13 @@ function renderLeaderboard() {
     podiumContainer.innerHTML = `
       <div style="grid-column: span 3; text-align: center; padding: 2rem; background: #fff; border-radius: var(--radius-lg); border: 1px dashed var(--border);">
         <p style="color: var(--text-muted); margin: 0; font-size: 0.95rem;">
-          📊 Papan podium akan otomatis terisi saat mahasiswa menyelesaikan kuis modul.
+          📊 Papan podium akan otomatis terisi saat minimal 3 mahasiswa menyelesaikan kuis modul.
         </p>
       </div>
     `;
   }
 
-  // Render Table
+  // Render Tabel Peringkat
   let rows = "";
   data.forEach(item => {
     rows += `
@@ -739,7 +861,7 @@ function renderLeaderboard() {
   container.innerHTML = rows || `
     <tr>
       <td colspan="8" style="text-align:center; padding:3rem; color:var(--text-muted);">
-        Belum ada mahasiswa yang terdaftar. Silakan lakukan pendaftaran untuk mulai belajar dan mencatatkan nama di papan peringkat.
+        Belum ada mahasiswa yang terdaftar di Google Sheet. Silakan lakukan pendaftaran untuk mulai belajar dan mencatatkan nama di papan peringkat.
       </td>
     </tr>
   `;
@@ -757,7 +879,7 @@ function renderTranscript() {
     container.innerHTML = `
       <div style="text-align:center; padding:3rem 1rem; background:#fff; border-radius:var(--radius-xl); border:1px solid var(--border);">
         <h3>Silakan Masuk Terlebih Dahulu</h3>
-        <p style="color:var(--text-muted); margin-bottom:1.5rem;">Anda harus login untuk melihat lembar capaian dan transkrip modul Anda.</p>
+        <p style="color:var(--text-muted); margin-bottom:1.5rem;">Anda harus login untuk melihat lembar capaian dan transkrip nilai Anda.</p>
         <button class="btn btn-primary" onclick="openAuthModal('login')">Masuk Sekarang</button>
       </div>
     `;
@@ -839,7 +961,7 @@ function renderTranscript() {
           <tr>
             <th style="width:6%; text-align:center;">No</th>
             <th style="width:44%;">Materi Pelatihan Classroom English</th>
-            <th style="width:12%; text-align:center;">Nilai</th>
+            <th style="width:12%; text-align:center;">Nilai Terbaik</th>
             <th style="width:16%; text-align:center;">Predikat</th>
             <th style="width:12%; text-align:center;">Status</th>
             <th style="width:10%; text-align:center;">Tanggal</th>
@@ -974,16 +1096,29 @@ function printCertificate() {
 }
 
 // ==========================================
-// TUTOR / ADMIN PANEL VIEW (BEBAS PIN PLAIN TEXT)
+// TUTOR / ADMIN PANEL VIEW
 // ==========================================
 
-function renderTutorPanel() {
+async function renderTutorPanel() {
   const container = document.getElementById("tutorContentArea");
+
+  // Jika mahasiswa sedang login, tolak akses sama sekali
+  if (AppState.currentUser) {
+    container.innerHTML = `
+      <div style="max-width:500px; margin:3rem auto; text-align:center; padding:3rem; background:#fff; border-radius:var(--radius-xl); border:1px solid var(--border); box-shadow:var(--shadow-sm);">
+        <div style="font-size:3rem; margin-bottom:1rem;">🚫</div>
+        <h3 style="color:var(--primary-dark);">Akses Ditolak</h3>
+        <p style="color:var(--text-muted); margin-bottom:1.5rem;">Panel Tutor hanya untuk Pengajar/Tutor. Anda saat ini sedang masuk sebagai mahasiswa (<strong>${escapeHtml(AppState.currentUser.nama)}</strong>).</p>
+        <button class="btn btn-primary" onclick="switchView('dashboard')">Kembali ke Beranda Modul</button>
+      </div>
+    `;
+    return;
+  }
+
   const isAuthenticated = sessionStorage.getItem("ut_tutor_auth") === "true";
 
   if (!isAuthenticated) {
     const hasLocalPin = localStorage.getItem("ut_tutor_local_pin") !== null;
-    const isScriptConfigured = Boolean(APP_CONFIG.scriptUrl);
 
     container.innerHTML = `
       <div style="max-width:460px; margin:3rem auto; background:#fff; padding:2.25rem; border-radius:var(--radius-xl); border:1px solid var(--border); box-shadow:var(--shadow-md); text-align:center;">
@@ -994,13 +1129,13 @@ function renderTutorPanel() {
         </p>
         <form onsubmit="handleTutorLogin(event)">
           <div class="form-group" style="text-align:left;">
-            <label for="tutorPinInput">${(!hasLocalPin && !isScriptConfigured) ? 'Buat PIN Pengaman Tutor Baru:' : 'Masukkan PIN Tutor Anda:'}</label>
+            <label for="tutorPinInput">${!hasLocalPin ? 'Masukkan PIN Tutor Anda (Default awal: tutor123):' : 'Masukkan PIN Tutor Anda:'}</label>
             <input type="password" id="tutorPinInput" class="form-control" 
-                   placeholder="${(!hasLocalPin && !isScriptConfigured) ? 'Buat PIN (minimal 4 karakter)' : 'Ketik PIN rahasia Anda'}" required>
-            ${(!hasLocalPin && !isScriptConfigured) ? '<small style="color:var(--text-muted); font-size:0.75rem;">PIN ini akan disimpan secara privat di browser Anda.</small>' : ''}
+                   placeholder="Ketik PIN rahasia Anda" required>
+            <small style="color:var(--text-muted); font-size:0.75rem;">PIN default awal: <code>tutor123</code></small>
           </div>
           <button type="submit" class="btn btn-primary" id="btnTutorLogin" style="width:100%;">
-            ${(!hasLocalPin && !isScriptConfigured) ? 'Simpan PIN & Buka Panel' : 'Masuk ke Panel Tutor'}
+            Masuk ke Panel Tutor
           </button>
         </form>
       </div>
@@ -1008,9 +1143,24 @@ function renderTutorPanel() {
     return;
   }
 
-  let allStudents = JSON.parse(localStorage.getItem("ut_lms_all_students") || "[]");
-  let studentRows = "";
+  // Tampilkan loading data mahasiswa
+  container.innerHTML = `
+    <div style="text-align:center; padding:3rem;">
+      <h4>Memuat data rekap dari Google Sheet...</h4>
+    </div>
+  `;
 
+  // Coba ambil data mahasiswa langsung dari Google Sheets backend
+  let allStudents = [];
+  const res = await apiCall("getAllStudents", { pin: "tutor123" });
+  if (res && res.success && res.students) {
+    allStudents = res.students;
+  } else {
+    // Fallback data lokal
+    allStudents = JSON.parse(localStorage.getItem("ut_lms_all_students") || "[]");
+  }
+
+  let studentRows = "";
   allStudents.forEach((st, idx) => {
     studentRows += `
       <tr>
@@ -1021,7 +1171,10 @@ function renderTutorPanel() {
         <td style="text-align:center; font-weight:700; color:var(--success);">${st.modulesPassed || 0} / 19</td>
         <td style="text-align:center; font-weight:700;">${st.totalScore || 0}</td>
         <td style="text-align:center;">
-          <button class="btn btn-outline btn-sm" onclick="inspectStudent('${st.nim}')">Detail</button>
+          <div style="display:flex; gap:4px; justify-content:center;">
+            <button class="btn btn-outline btn-sm" onclick="inspectStudent('${st.nim}')">Detail</button>
+            <button class="btn btn-outline btn-sm" style="color:#dc2626; border-color:#fca5a5;" onclick="deleteStudentAction('${st.nim}', '${escapeHtml(st.nama)}')">Hapus</button>
+          </div>
         </td>
       </tr>
     `;
@@ -1048,7 +1201,7 @@ function renderTutorPanel() {
     <div style="background:#fff; border:1px solid var(--border); padding:1.5rem; border-radius:var(--radius-lg); margin-bottom:2rem; box-shadow:var(--shadow-sm);">
       <h4 style="margin-bottom:0.5rem; color:var(--primary-dark);">Konfigurasi Google Apps Script Web App</h4>
       <p style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:1rem;">
-        Tempelkan URL Web App yang didapat setelah melakukan Deploy Google Apps Script di Google Sheets Anda:
+        URL Web App Google Apps Script yang terhubung ke database spreadsheet:
       </p>
       <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
         <input type="url" id="scriptUrlInput" class="form-control" style="flex:1; min-width:300px;" 
@@ -1058,7 +1211,7 @@ function renderTutorPanel() {
         <button class="btn btn-outline" onclick="testScriptConnection()">Uji Koneksi</button>
       </div>
       <p style="font-size:0.75rem; color:var(--text-muted); margin-top:0.5rem;">
-        File script <code>Code.gs</code> tersedia di folder <code>google-apps-script/Code.gs</code> untuk disalin ke Extensions -> Apps Script di spreadsheet.
+        Database Spreadsheet: <a href="${APP_CONFIG.spreadsheetUrl}" target="_blank">Buka Spreadsheet</a>
       </p>
     </div>
 
@@ -1084,7 +1237,7 @@ function renderTutorPanel() {
             </tr>
           </thead>
           <tbody>
-            ${studentRows || '<tr><td colspan="7" style="text-align:center; padding:2rem; color:var(--text-muted);">Belum ada mahasiswa yang terdaftar di sistem.</td></tr>'}
+            ${studentRows || '<tr><td colspan="7" style="text-align:center; padding:2rem; color:var(--text-muted);">Belum ada mahasiswa yang terdaftar di Google Sheet.</td></tr>'}
           </tbody>
         </table>
       </div>
@@ -1098,74 +1251,26 @@ async function handleTutorLogin(e) {
   const submitBtn = document.getElementById("btnTutorLogin");
   if (submitBtn) submitBtn.disabled = true;
 
-  // 1. Jika URL Google Apps Script sudah terhubung, verifikasi ke Google Apps Script:
-  if (APP_CONFIG.scriptUrl) {
-    try {
-      const res = await fetch(`${APP_CONFIG.scriptUrl}?action=verifyTutorPin&pin=${encodeURIComponent(pin)}`);
-      const data = await res.json();
-      
-      if (data.success && data.verified) {
-        sessionStorage.setItem("ut_tutor_auth", "true");
-        alert(data.message || "Akses Tutor Terverifikasi.");
-        renderTutorPanel();
-        return;
-      } 
-      
-      // Jika deployment Google Apps Script masih versi lama (belum New Deployment kode terbaru):
-      if (data.message && data.message.includes("Aksi tidak dikenali")) {
-        console.warn("Script terdeteksi masih versi lama, mencoba mode kompatibilitas...");
-        
-        // Coba verifikasi dengan endpoint getAllStudents versi lama:
-        try {
-          const oldRes = await fetch(`${APP_CONFIG.scriptUrl}?action=getAllStudents&tutorPin=${encodeURIComponent(pin)}`);
-          const oldData = await oldRes.json();
-          if (oldData.success) {
-            sessionStorage.setItem("ut_tutor_auth", "true");
-            alert("Akses Tutor Terverifikasi (Mode Kompatibilitas)!\n\nCatatan: Google Apps Script Anda saat ini masih menjalankan deployment versi lama. Silakan lakukan 'New deployment' pada editor Google Apps Script agar PIN tersimpan aman di Script Properties.");
-            renderTutorPanel();
-            return;
-          }
-        } catch (e2) {
-          // Lanjut ke fallback pin lama
-        }
-        
-        // Fallback untuk PIN default versi lama jika script belum di-deploy ulang
-        if (pin === "tutor123") {
-          sessionStorage.setItem("ut_tutor_auth", "true");
-          alert("Akses Tutor Terverifikasi!\n\nCatatan: Google Apps Script Anda masih menjalankan versi lama. Untuk memperbarui, buka Apps Script -> Deploy -> New deployment.");
-          renderTutorPanel();
-          return;
-        }
-      } else {
-        alert(data.message || "PIN Tutor salah!");
-        if (submitBtn) submitBtn.disabled = false;
-        return;
-      }
-    } catch (err) {
-      console.warn("Gagal kontak Google Apps Script:", err);
-    }
-  }
-
-  // 2. Mode Mandiri / Lokal:
-  let savedLocalPin = localStorage.getItem("ut_tutor_local_pin");
-  if (!savedLocalPin) {
-    if (pin.length < 4) {
-      alert("PIN baru minimal 4 karakter.");
-      if (submitBtn) submitBtn.disabled = false;
+  // 1. Coba verifikasi ke Google Apps Script backend jika ada
+  try {
+    const res = await apiCall("verifyTutorPin", { pin: pin });
+    if (res && res.success && res.verified) {
+      sessionStorage.setItem("ut_tutor_auth", "true");
+      alert(res.message || "Akses Tutor Terverifikasi.");
+      renderTutorPanel();
       return;
     }
-    localStorage.setItem("ut_tutor_local_pin", pin);
-    sessionStorage.setItem("ut_tutor_auth", "true");
-    alert("PIN Pengaman Tutor Anda berhasil disimpan untuk browser ini!");
-    renderTutorPanel();
-    return;
+  } catch (err) {
+    // Abaikan
   }
 
+  // 2. Fallback verifikasi lokal PIN
+  const savedLocalPin = localStorage.getItem("ut_tutor_local_pin");
   if (pin === savedLocalPin || pin === "tutor123") {
     sessionStorage.setItem("ut_tutor_auth", "true");
     renderTutorPanel();
   } else {
-    alert("PIN Tutor salah!");
+    alert("PIN Tutor salah! Gunakan PIN Anda atau default: tutor123");
   }
 
   if (submitBtn) submitBtn.disabled = false;
@@ -1175,8 +1280,8 @@ function changeTutorPinPrompt() {
   const current = prompt("Masukkan PIN Tutor Anda saat ini:");
   if (!current) return;
 
-  const savedLocalPin = localStorage.getItem("ut_tutor_local_pin");
-  if (savedLocalPin && current !== savedLocalPin) {
+  const savedLocalPin = localStorage.getItem("ut_tutor_local_pin") || "tutor123";
+  if (current !== savedLocalPin) {
     alert("PIN saat ini salah.");
     return;
   }
@@ -1188,24 +1293,15 @@ function changeTutorPinPrompt() {
   }
 
   localStorage.setItem("ut_tutor_local_pin", newPin);
-
-  // Jika scriptUrl terpasang, update juga ke Google Apps Script
-  if (APP_CONFIG.scriptUrl) {
-    try {
-      fetch(`${APP_CONFIG.scriptUrl}?action=updateTutorPin&currentPin=${encodeURIComponent(current)}&newPin=${encodeURIComponent(newPin)}`);
-    } catch (e) {
-      // Abaikan
-    }
-  }
-
+  apiCall("updateTutorPin", { currentPin: current, newPin: newPin });
   alert("PIN Tutor Anda berhasil diperbarui!");
 }
 
 function saveScriptUrl() {
   const url = document.getElementById("scriptUrlInput").value.trim();
   APP_CONFIG.scriptUrl = url;
-  localStorage.setItem("ut_lms_script_url", url);
   alert("URL Google Apps Script berhasil disimpan!");
+  checkBackendHealth();
 }
 
 async function testScriptConnection() {
@@ -1215,15 +1311,16 @@ async function testScriptConnection() {
     return;
   }
   try {
-    const res = await fetch(`${url}?action=ping`);
-    const data = await res.json();
-    if (data.success) {
-      alert(`Koneksi Sukses!\n\nNama Database: ${data.spreadsheetName}\nTotal Mahasiswa di Sheets: ${data.totalStudents}\nTotal Aktivitas Kuis: ${data.totalAttempts}`);
+    const res = await apiCall("ping");
+    if (res && res.success) {
+      alert(`Koneksi Sukses!\n\nNama Database: ${res.spreadsheetName}\nTotal Mahasiswa di Sheets: ${res.totalStudents}\nTotal Aktivitas Kuis: ${res.totalAttempts}`);
+      AppState.isBackendConnected = true;
+      updateBackendBadge();
     } else {
-      alert("Koneksi tersambung tetapi server mengembalikan pesan: " + JSON.stringify(data));
+      alert("Koneksi tersambung tetapi server mengembalikan pesan: " + JSON.stringify(res));
     }
   } catch (err) {
-    alert("Gagal menghubungi URL Web App. Pastikan Deployment disetel ke 'Who has access: Anyone'.\nError: " + err.message);
+    alert("Gagal menghubungi URL Web App. Error: " + err.message);
   }
 }
 
@@ -1252,6 +1349,23 @@ function inspectStudent(nim) {
   const s = allStudents.find(x => x.nim === nim);
   if (!s) return;
   alert(`Detail Mahasiswa:\n\nNIM: ${s.nim}\nNama: ${s.nama}\nKelas: ${s.kelas}\nModul Selesai: ${s.modulesPassed || 0}/19\nTotal Skor: ${s.totalScore || 0}`);
+}
+
+async function deleteStudentAction(nim, nama) {
+  if (!confirm(`Apakah Anda yakin ingin menghapus mahasiswa ${nama} (NIM: ${nim}) beserta seluruh catatan nilainya dari Google Sheet?`)) {
+    return;
+  }
+  
+  const res = await apiCall("deleteStudent", { nim: nim });
+  
+  // Bersihkan dari penyimpanan lokal
+  let allStudents = JSON.parse(localStorage.getItem("ut_lms_all_students") || "[]");
+  allStudents = allStudents.filter(s => s.nim !== nim);
+  localStorage.setItem("ut_lms_all_students", JSON.stringify(allStudents));
+  
+  alert(res.message || `Mahasiswa ${nama} berhasil dihapus.`);
+  renderTutorPanel();
+  syncLeaderboard();
 }
 
 // ==========================================

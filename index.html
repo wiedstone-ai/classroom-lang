@@ -26,7 +26,10 @@
       <a href="javascript:void(0)" class="nav-brand" onclick="switchView('dashboard')">
         <div class="ut-logo-badge">UT</div>
         <div class="brand-text">
-          <h1>Classroom English LMS</h1>
+          <div style="display:flex; align-items:center; gap:0.5rem;">
+            <h1 style="margin:0;">Classroom English LMS</h1>
+            <div id="backendStatusBadge" style="display:inline-flex; align-items:center; font-size:0.72rem; padding:0.15rem 0.5rem; border-radius:12px; font-weight:600;"></div>
+          </div>
           <p>Program Studi PGSD • Universitas Terbuka</p>
         </div>
       </a>
@@ -37,7 +40,7 @@
           <li><button class="nav-link" data-view="leaderboard">🏆 Papan Peringkat</button></li>
           <li><button class="nav-link" data-view="transcript">📋 Capaian & Transkrip</button></li>
           <li><button class="nav-link" data-view="certificate">🎖️ Sertifikat</button></li>
-          <li><button class="nav-link" data-view="tutor">⚙️ Panel Tutor</button></li>
+          <li id="navItemTutor"><button class="nav-link" data-view="tutor">⚙️ Panel Tutor</button></li>
         </ul>
       </nav>
 
