@@ -1,6 +1,7 @@
 /**
  * LMS CLASSROOM ENGLISH - LOGIKA APLIKASI UT PGSD
  * Terintegrasi dengan Google Spreadsheet & Google Apps Script
+ * Versi Bersih: Bebas Data Dummy & PIN Aman (Tanpa Plaintext di Repositori)
  */
 
 // Konfigurasi Sistem
@@ -8,7 +9,6 @@ const APP_CONFIG = {
   spreadsheetUrl: "https://docs.google.com/spreadsheets/d/1ETjJYbWnNVIfYhzAdx0gs77c73k6CsRW_-9-ZU4gQsc",
   // Script URL dapat diisi di sini atau melalui Pengaturan Tutor di aplikasi
   scriptUrl: localStorage.getItem("ut_lms_script_url") || "",
-  tutorPin: "tutor123",
   passThreshold: 70 // Minimal 70% untuk lulus modul
 };
 
@@ -74,6 +74,16 @@ async function handleRegister(e) {
     return;
   }
 
+  // Cek apakah NIM sudah terdaftar di database lokal
+  const allStudents = JSON.parse(localStorage.getItem("ut_lms_all_students") || "[]");
+  if (allStudents.some(s => s.nim === nim)) {
+    alert(`NIM ${nim} sudah terdaftar! Silakan gunakan menu Masuk (Login) menggunakan Password NIM Anda.`);
+    switchAuthTab("login");
+    document.getElementById("loginNim").value = nim;
+    document.getElementById("loginPassword").focus();
+    return;
+  }
+
   const submitBtn = document.getElementById("btnSubmitRegister");
   submitBtn.disabled = true;
   submitBtn.innerText = "Mendaftarkan...";
@@ -106,19 +116,19 @@ async function handleRegister(e) {
       });
       const data = await res.json();
       if (!data.success) {
-        alert(data.message || "Gagal mendaftar di database.");
+        alert(data.message || "Gagal mendaftar di database spreadsheet.");
         submitBtn.disabled = false;
         submitBtn.innerText = "Daftar Sekarang";
         return;
       }
     } catch (err) {
-      console.warn("Gagal menghubungi Google Apps Script, fallback ke penyimpanan lokal:", err);
+      console.warn("Koneksi Google Apps Script gagal, menggunakan penyimpanan lokal:", err);
     }
   }
 
   saveLocalSession(newStudent);
   closeModal("modalAuth");
-  alert(`Selamat datang, ${nama}! Anda berhasil terdaftar.\n\nUsername: ${nim}\nPassword: ${nim}`);
+  alert(`Selamat datang, ${nama}!\n\nPendaftaran berhasil.\nKelas: ${kelas}\nUsername: ${nim}\nPassword Awal: ${nim}`);
   renderApp();
   syncLeaderboard();
   submitBtn.disabled = false;
@@ -137,9 +147,9 @@ async function handleLogin(e) {
 
   const submitBtn = document.getElementById("btnSubmitLogin");
   submitBtn.disabled = true;
-  submitBtn.innerText = "Masuk...";
+  submitBtn.innerText = "Memverifikasi...";
 
-  // Jika scriptUrl terpasang, panggil backend Apps Script
+  // 1. Coba verifikasi ke Google Apps Script backend jika URL tersedia
   if (APP_CONFIG.scriptUrl) {
     try {
       const res = await fetch(`${APP_CONFIG.scriptUrl}?action=login&nim=${encodeURIComponent(nim)}&password=${encodeURIComponent(password)}`);
@@ -147,24 +157,24 @@ async function handleLogin(e) {
       if (data.success && data.student) {
         saveLocalSession(data.student);
         closeModal("modalAuth");
-        alert(data.message);
+        alert(data.message || `Selamat datang kembali, ${data.student.nama}!`);
         renderApp();
         syncLeaderboard();
         submitBtn.disabled = false;
         submitBtn.innerText = "Masuk";
         return;
-      } else {
-        alert(data.message || "NIM atau Password salah.");
+      } else if (data.message && data.message.includes("Password salah")) {
+        alert(data.message);
         submitBtn.disabled = false;
         submitBtn.innerText = "Masuk";
         return;
       }
     } catch (err) {
-      console.warn("Gagal kontak server, cek data lokal:", err);
+      console.warn("Gagal menghubungi Google Apps Script, fallback ke verifikasi lokal:", err);
     }
   }
 
-  // Fallback lokal
+  // 2. Fallback verifikasi lokal dari database terdaftar
   let allStudents = JSON.parse(localStorage.getItem("ut_lms_all_students") || "[]");
   const found = allStudents.find(s => s.nim === nim);
 
@@ -176,11 +186,12 @@ async function handleLogin(e) {
       renderApp();
       syncLeaderboard();
     } else {
-      alert("Password salah. Password default adalah NIM Anda.");
+      alert("Password salah. Password awal adalah NIM Anda.");
     }
   } else {
-    // Jika belum ada di lokal dan belum ada apps script, tawarkan registrasi otomatis
-    alert("NIM belum terdaftar. Silakan pilih tab 'Daftar Baru' terlebih dahulu.");
+    alert(`NIM ${nim} belum terdaftar di sistem. Silakan pilih tab 'Daftar Baru' terlebih dahulu.`);
+    switchAuthTab("register");
+    document.getElementById("regNim").value = nim;
   }
 
   submitBtn.disabled = false;
@@ -188,12 +199,13 @@ async function handleLogin(e) {
 }
 
 function handleLogout() {
-  if (confirm("Apakah Anda yakin ingin keluar dari LMS?")) {
+  if (confirm("Apakah Anda yakin ingin keluar dari akun ini?")) {
     AppState.currentUser = null;
     localStorage.removeItem("ut_lms_user");
     AppState.activeView = "dashboard";
     renderApp();
-    alert("Anda telah keluar.");
+    syncLeaderboard();
+    alert("Anda telah berhasil keluar (logout).");
   }
 }
 
@@ -249,7 +261,7 @@ function updateNavbar() {
   if (user) {
     userContainer.innerHTML = `
       <div class="user-badge">
-        <span>${escapeHtml(user.nama)}</span>
+        <span>👤 ${escapeHtml(user.nama)}</span>
         <span class="class-tag">${escapeHtml(user.kelas)}</span>
       </div>
       <button class="btn btn-outline-white btn-sm" onclick="handleLogout()">Keluar</button>
@@ -292,11 +304,11 @@ function renderDashboard() {
 
     let statusBadge = "";
     if (isCompleted) {
-      statusBadge = `<div class="module-badge-status badge-passed"><i class="icon">✓</i> Lulus (${scoreObj ? scoreObj.score : 100}%)</div>`;
+      statusBadge = `<div class="module-badge-status badge-passed">✓ Lulus (${scoreObj ? scoreObj.score : 100}%)</div>`;
     } else if (isUnlocked) {
       statusBadge = `<div class="module-badge-status badge-ready">Siap Dipelajari</div>`;
     } else {
-      statusBadge = `<div class="module-badge-status badge-locked"><i class="icon">🔒</i> Terkunci</div>`;
+      statusBadge = `<div class="module-badge-status badge-locked">🔒 Terkunci</div>`;
     }
 
     card.innerHTML = `
@@ -311,7 +323,7 @@ function renderDashboard() {
         <div class="module-title-en">${escapeHtml(mod.titleEn)}</div>
         <p class="module-desc">${escapeHtml(mod.summary)}</p>
         <div class="module-footer">
-          ${scoreObj ? `<span class="score-display">Skor: ${scoreObj.score}</span>` : `<span></span>`}
+          ${scoreObj ? `<span class="score-display">Nilai: ${scoreObj.score}</span>` : `<span></span>`}
           <button class="btn ${isUnlocked ? 'btn-primary' : 'btn-outline'} btn-sm" onclick="openModule(${mod.id})" ${!isUnlocked ? 'disabled' : ''}>
             ${isCompleted ? 'Pelajari Ulang' : (isUnlocked ? 'Mulai Belajar' : 'Terkunci')}
           </button>
@@ -349,7 +361,6 @@ function openModule(moduleId) {
 function renderStudyView() {
   const mod = MODULES_DATA.find(m => m.id === AppState.activeModuleId) || MODULES_DATA[0];
   const user = AppState.currentUser;
-  const isCompleted = user && (user.passedModules || []).includes(mod.id);
 
   document.getElementById("studyModuleTitle").innerHTML = `
     <span style="color:var(--accent-gold); font-weight:800;">Modul ${mod.index}:</span> ${escapeHtml(mod.titleId)}
@@ -369,7 +380,7 @@ function renderStudyView() {
   // Reading / Document Tab
   const docTab = document.getElementById("studyDocContainer");
   let exprRows = "";
-  (mod.expressions || []).forEach((exp, i) => {
+  (mod.expressions || []).forEach((exp) => {
     exprRows += `
       <tr>
         <td style="font-weight:700; color:var(--primary);">${escapeHtml(exp.en)}</td>
@@ -568,9 +579,7 @@ async function handleQuizSubmit(e, moduleId) {
           action: "submitScore",
           nim: user.nim,
           moduleId: moduleId,
-          score: finalScore,
-          totalQuestions: total,
-          correctCount: correctCount
+          score: finalScore
         })
       });
     } catch (err) {
@@ -583,7 +592,7 @@ async function handleQuizSubmit(e, moduleId) {
   // Dialog Hasil
   const nextMod = MODULES_DATA.find(m => m.id === moduleId + 1);
   if (isPassed) {
-    let msg = `🎉 SELAMAT! Anda LULUS Modul ${mod.index} dengan nilai ${finalScore}!\n(${correctCount} dari ${total} benar).\n`;
+    let msg = `🎉 SELAMAT! Anda LULUS Modul ${mod.index} dengan nilai ${finalScore}!\n(${correctCount} dari ${total} soal benar).\n`;
     if (nextMod) {
       msg += `\nModul ${nextMod.index}: "${nextMod.titleId}" kini telah TERBUKA untuk dipelajari!`;
     } else {
@@ -591,17 +600,16 @@ async function handleQuizSubmit(e, moduleId) {
     }
     alert(msg);
   } else {
-    alert(`Nilai Anda: ${finalScore}% (${correctCount} dari ${total} benar).\nBatas kelulusan adalah ${APP_CONFIG.passThreshold}%.\nSilakan pelajari kembali video & modul, lalu coba kuis kembali!`);
+    alert(`Nilai Anda: ${finalScore}% (${correctCount} dari ${total} benar).\nBatas kelulusan adalah ${APP_CONFIG.passThreshold}%.\nSilakan pelajari kembali materi modul, lalu coba kuis kembali!`);
   }
 
-  // Update button
   const submitBtn = document.getElementById("btnSubmitQuiz");
   submitBtn.innerText = "Coba Kuis Lagi";
   submitBtn.onclick = () => renderQuiz(mod);
 }
 
 // ==========================================
-// LEADERBOARD VIEW
+// LEADERBOARD VIEW (BERSIH DARI DATA DUMMY)
 // ==========================================
 
 async function syncLeaderboard() {
@@ -615,24 +623,12 @@ async function syncLeaderboard() {
         return;
       }
     } catch (e) {
-      console.warn("Gagal mengambil leaderboard live, memakai data lokal:", e);
+      console.warn("Gagal mengambil leaderboard live dari script, menggunakan data lokal:", e);
     }
   }
 
-  // Fallback lokal
+  // Fallback data lokal murni dari mahasiswa yang benar-benar mendaftar (TANPA DUMMY)
   let allStudents = JSON.parse(localStorage.getItem("ut_lms_all_students") || "[]");
-  
-  // Jika masih kosong dan belum ada data, beri sampel realistik
-  if (allStudents.length === 0) {
-    allStudents = [
-      { nim: "858012341", nama: "Nadia Rahmawati", kelas: "PGSD 1A", totalScore: 1850, modulesPassed: 19 },
-      { nim: "858012342", nama: "Dimas Aditya Pratama", kelas: "PGSD 1B", totalScore: 1780, modulesPassed: 18 },
-      { nim: "858012343", nama: "Siti Nurhaliza", kelas: "PGSD 1A", totalScore: 1620, modulesPassed: 17 },
-      { nim: "858012344", nama: "Rizky Ramadhan", kelas: "PGSD 1B", totalScore: 1450, modulesPassed: 15 },
-      { nim: "858012345", nama: "Dewi Lestari", kelas: "PGSD 1A", totalScore: 1280, modulesPassed: 13 }
-    ];
-    localStorage.setItem("ut_lms_all_students", JSON.stringify(allStudents));
-  }
 
   let list = allStudents.filter(s => {
     if (AppState.leaderboardFilter === "ALL") return true;
@@ -675,37 +671,45 @@ function renderLeaderboard() {
   const podiumContainer = document.getElementById("podiumContainer");
   const data = AppState.leaderboardData;
 
-  // Render Podium (Top 3)
-  if (data.length >= 3) {
+  // Render Podium jika sudah ada minimal 3 mahasiswa terdaftar yang lulus modul
+  const activeStudents = data.filter(d => d.modulesPassed > 0 || d.totalScore > 0);
+
+  if (activeStudents.length >= 3) {
     podiumContainer.innerHTML = `
       <!-- Juara 2 -->
       <div class="podium-card podium-2">
         <div class="podium-rank">2</div>
-        <h4 style="font-size:1.05rem; margin-bottom:0.2rem;">${escapeHtml(data[1].nama)}</h4>
-        <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.5rem;">${escapeHtml(data[1].kelas)} (${data[1].nimMasked})</div>
-        <div style="font-weight:700; color:var(--primary); font-size:1.1rem;">${data[1].totalScore} Poin</div>
-        <div style="font-size:0.8rem; color:var(--success); font-weight:600;">${data[1].modulesPassed}/19 Modul</div>
+        <h4 style="font-size:1.05rem; margin-bottom:0.2rem;">${escapeHtml(activeStudents[1].nama)}</h4>
+        <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.5rem;">${escapeHtml(activeStudents[1].kelas)} (${activeStudents[1].nimMasked})</div>
+        <div style="font-weight:700; color:var(--primary); font-size:1.1rem;">${activeStudents[1].totalScore} Poin</div>
+        <div style="font-size:0.8rem; color:var(--success); font-weight:600;">${activeStudents[1].modulesPassed}/19 Modul</div>
       </div>
       <!-- Juara 1 -->
       <div class="podium-card podium-1">
         <div style="position:absolute; top:-15px; left:50%; transform:translateX(-50%); font-size:1.5rem;">👑</div>
         <div class="podium-rank">1</div>
-        <h4 style="font-size:1.2rem; margin-bottom:0.2rem; color:#b45309;">${escapeHtml(data[0].nama)}</h4>
-        <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.5rem;">${escapeHtml(data[0].kelas)} (${data[0].nimMasked})</div>
-        <div style="font-weight:800; color:#d97706; font-size:1.3rem;">${data[0].totalScore} Poin</div>
-        <div style="font-size:0.85rem; color:var(--success); font-weight:700;">${data[0].modulesPassed}/19 Modul (${data[0].progressPercent}%)</div>
+        <h4 style="font-size:1.2rem; margin-bottom:0.2rem; color:#b45309;">${escapeHtml(activeStudents[0].nama)}</h4>
+        <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.5rem;">${escapeHtml(activeStudents[0].kelas)} (${activeStudents[0].nimMasked})</div>
+        <div style="font-weight:800; color:#d97706; font-size:1.3rem;">${activeStudents[0].totalScore} Poin</div>
+        <div style="font-size:0.85rem; color:var(--success); font-weight:700;">${activeStudents[0].modulesPassed}/19 Modul (${activeStudents[0].progressPercent}%)</div>
       </div>
       <!-- Juara 3 -->
       <div class="podium-card podium-3">
         <div class="podium-rank">3</div>
-        <h4 style="font-size:1.05rem; margin-bottom:0.2rem;">${escapeHtml(data[2].nama)}</h4>
-        <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.5rem;">${escapeHtml(data[2].kelas)} (${data[2].nimMasked})</div>
-        <div style="font-weight:700; color:var(--primary); font-size:1.1rem;">${data[2].totalScore} Poin</div>
-        <div style="font-size:0.8rem; color:var(--success); font-weight:600;">${data[2].modulesPassed}/19 Modul</div>
+        <h4 style="font-size:1.05rem; margin-bottom:0.2rem;">${escapeHtml(activeStudents[2].nama)}</h4>
+        <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.5rem;">${escapeHtml(activeStudents[2].kelas)} (${activeStudents[2].nimMasked})</div>
+        <div style="font-weight:700; color:var(--primary); font-size:1.1rem;">${activeStudents[2].totalScore} Poin</div>
+        <div style="font-size:0.8rem; color:var(--success); font-weight:600;">${activeStudents[2].modulesPassed}/19 Modul</div>
       </div>
     `;
   } else {
-    podiumContainer.innerHTML = `<p style="grid-column:span 3; text-align:center; color:var(--text-muted);">Belum cukup peserta untuk menampilkan podium 3 besar.</p>`;
+    podiumContainer.innerHTML = `
+      <div style="grid-column: span 3; text-align: center; padding: 2rem; background: #fff; border-radius: var(--radius-lg); border: 1px dashed var(--border);">
+        <p style="color: var(--text-muted); margin: 0; font-size: 0.95rem;">
+          📊 Papan podium akan otomatis terisi saat mahasiswa menyelesaikan kuis modul.
+        </p>
+      </div>
+    `;
   }
 
   // Render Table
@@ -732,7 +736,13 @@ function renderLeaderboard() {
     `;
   });
 
-  container.innerHTML = rows || `<tr><td colspan="8" style="text-align:center; padding:2rem; color:var(--text-muted);">Belum ada data nilai.</td></tr>`;
+  container.innerHTML = rows || `
+    <tr>
+      <td colspan="8" style="text-align:center; padding:3rem; color:var(--text-muted);">
+        Belum ada mahasiswa yang terdaftar. Silakan lakukan pendaftaran untuk mulai belajar dan mencatatkan nama di papan peringkat.
+      </td>
+    </tr>
+  `;
 }
 
 // ==========================================
@@ -745,7 +755,7 @@ function renderTranscript() {
 
   if (!user) {
     container.innerHTML = `
-      <div style="text-align:center; padding:3rem 1rem;">
+      <div style="text-align:center; padding:3rem 1rem; background:#fff; border-radius:var(--radius-xl); border:1px solid var(--border);">
         <h3>Silakan Masuk Terlebih Dahulu</h3>
         <p style="color:var(--text-muted); margin-bottom:1.5rem;">Anda harus login untuk melihat lembar capaian dan transkrip modul Anda.</p>
         <button class="btn btn-primary" onclick="openAuthModal('login')">Masuk Sekarang</button>
@@ -870,7 +880,7 @@ function renderCertificate() {
 
   if (!user) {
     container.innerHTML = `
-      <div style="text-align:center; padding:3rem 1rem;">
+      <div style="text-align:center; padding:3rem 1rem; background:#fff; border-radius:var(--radius-xl); border:1px solid var(--border);">
         <h3>Silakan Masuk Terlebih Dahulu</h3>
         <p style="color:var(--text-muted); margin-bottom:1.5rem;">Sertifikat kelulusan hanya dapat diakses oleh mahasiswa yang terdaftar.</p>
         <button class="btn btn-primary" onclick="openAuthModal('login')">Masuk Sekarang</button>
@@ -964,7 +974,7 @@ function printCertificate() {
 }
 
 // ==========================================
-// TUTOR / ADMIN PANEL VIEW
+// TUTOR / ADMIN PANEL VIEW (BEBAS PIN PLAIN TEXT)
 // ==========================================
 
 function renderTutorPanel() {
@@ -972,18 +982,26 @@ function renderTutorPanel() {
   const isAuthenticated = sessionStorage.getItem("ut_tutor_auth") === "true";
 
   if (!isAuthenticated) {
+    const hasLocalPin = localStorage.getItem("ut_tutor_local_pin") !== null;
+    const isScriptConfigured = Boolean(APP_CONFIG.scriptUrl);
+
     container.innerHTML = `
-      <div style="max-width:450px; margin:3rem auto; background:#fff; padding:2rem; border-radius:var(--radius-xl); border:1px solid var(--border); box-shadow:var(--shadow-md); text-align:center;">
-        <h3 style="color:var(--primary-dark); margin-bottom:0.5rem;">Akses Panel Tutor</h3>
+      <div style="max-width:460px; margin:3rem auto; background:#fff; padding:2.25rem; border-radius:var(--radius-xl); border:1px solid var(--border); box-shadow:var(--shadow-md); text-align:center;">
+        <div style="font-size:2.5rem; margin-bottom:0.75rem;">🔐</div>
+        <h3 style="color:var(--primary-dark); margin-bottom:0.5rem;">Akses Khusus Tutor</h3>
         <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1.5rem;">
-          Hanya Tutor yang berhak mengakses database nilai, rekap pendaftaran, dan konfigurasi spreadsheet.
+          Hanya Tutor yang berhak mengakses rekap data mahasiswa, nilai kuis, dan pengelolaan spreadsheet database.
         </p>
         <form onsubmit="handleTutorLogin(event)">
           <div class="form-group" style="text-align:left;">
-            <label>Masukkan PIN Tutor:</label>
-            <input type="password" id="tutorPinInput" class="form-control" placeholder="Default PIN: tutor123" required>
+            <label for="tutorPinInput">${(!hasLocalPin && !isScriptConfigured) ? 'Buat PIN Pengaman Tutor Baru:' : 'Masukkan PIN Tutor Anda:'}</label>
+            <input type="password" id="tutorPinInput" class="form-control" 
+                   placeholder="${(!hasLocalPin && !isScriptConfigured) ? 'Buat PIN (minimal 4 karakter)' : 'Ketik PIN rahasia Anda'}" required>
+            ${(!hasLocalPin && !isScriptConfigured) ? '<small style="color:var(--text-muted); font-size:0.75rem;">PIN ini akan disimpan secara privat di browser Anda.</small>' : ''}
           </div>
-          <button type="submit" class="btn btn-primary" style="width:100%;">Verifikasi PIN</button>
+          <button type="submit" class="btn btn-primary" id="btnTutorLogin" style="width:100%;">
+            ${(!hasLocalPin && !isScriptConfigured) ? 'Simpan PIN & Buka Panel' : 'Masuk ke Panel Tutor'}
+          </button>
         </form>
       </div>
     `;
@@ -1015,10 +1033,11 @@ function renderTutorPanel() {
         <h3 style="margin:0;">Dashboard Tutor & Pengelolaan Database</h3>
         <p style="color:var(--text-muted); margin:0;">Kelola data mahasiswa PGSD 1A & 1B dan integrasi Google Sheets.</p>
       </div>
-      <div style="display:flex; gap:0.75rem;">
+      <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
         <a href="${APP_CONFIG.spreadsheetUrl}" target="_blank" class="btn btn-gold">
           📊 Buka Google Spreadsheet Database
         </a>
+        <button class="btn btn-outline" onclick="changeTutorPinPrompt()">Ubah PIN</button>
         <button class="btn btn-outline" onclick="sessionStorage.removeItem('ut_tutor_auth'); renderTutorPanel();">
           Kunci Panel
         </button>
@@ -1065,7 +1084,7 @@ function renderTutorPanel() {
             </tr>
           </thead>
           <tbody>
-            ${studentRows || '<tr><td colspan="7" style="text-align:center; padding:2rem; color:var(--text-muted);">Belum ada mahasiswa yang terdaftar.</td></tr>'}
+            ${studentRows || '<tr><td colspan="7" style="text-align:center; padding:2rem; color:var(--text-muted);">Belum ada mahasiswa yang terdaftar di sistem.</td></tr>'}
           </tbody>
         </table>
       </div>
@@ -1073,15 +1092,85 @@ function renderTutorPanel() {
   `;
 }
 
-function handleTutorLogin(e) {
+async function handleTutorLogin(e) {
   e.preventDefault();
   const pin = document.getElementById("tutorPinInput").value.trim();
-  if (pin === APP_CONFIG.tutorPin) {
+  const submitBtn = document.getElementById("btnTutorLogin");
+  if (submitBtn) submitBtn.disabled = true;
+
+  // 1. Jika URL Google Apps Script sudah terhubung, verifikasi langsung ke Google Apps Script:
+  if (APP_CONFIG.scriptUrl) {
+    try {
+      const res = await fetch(`${APP_CONFIG.scriptUrl}?action=verifyTutorPin&pin=${encodeURIComponent(pin)}`);
+      const data = await res.json();
+      if (data.success && data.verified) {
+        sessionStorage.setItem("ut_tutor_auth", "true");
+        alert(data.message || "Akses Tutor Terverifikasi.");
+        renderTutorPanel();
+        return;
+      } else {
+        alert(data.message || "PIN Tutor salah!");
+        if (submitBtn) submitBtn.disabled = false;
+        return;
+      }
+    } catch (err) {
+      console.warn("Gagal kontak Google Apps Script:", err);
+    }
+  }
+
+  // 2. Mode Mandiri / Lokal:
+  let savedLocalPin = localStorage.getItem("ut_tutor_local_pin");
+  if (!savedLocalPin) {
+    if (pin.length < 4) {
+      alert("PIN baru minimal 4 karakter.");
+      if (submitBtn) submitBtn.disabled = false;
+      return;
+    }
+    localStorage.setItem("ut_tutor_local_pin", pin);
+    sessionStorage.setItem("ut_tutor_auth", "true");
+    alert("PIN Pengaman Tutor Anda berhasil disimpan untuk browser ini!");
+    renderTutorPanel();
+    return;
+  }
+
+  if (pin === savedLocalPin) {
     sessionStorage.setItem("ut_tutor_auth", "true");
     renderTutorPanel();
   } else {
     alert("PIN Tutor salah!");
   }
+
+  if (submitBtn) submitBtn.disabled = false;
+}
+
+function changeTutorPinPrompt() {
+  const current = prompt("Masukkan PIN Tutor Anda saat ini:");
+  if (!current) return;
+
+  const savedLocalPin = localStorage.getItem("ut_tutor_local_pin");
+  if (savedLocalPin && current !== savedLocalPin) {
+    alert("PIN saat ini salah.");
+    return;
+  }
+
+  const newPin = prompt("Masukkan PIN Tutor baru Anda (minimal 4 karakter):");
+  if (!newPin || newPin.length < 4) {
+    alert("PIN baru dibatalkan atau kurang dari 4 karakter.");
+    return;
+  }
+
+  localStorage.setItem("ut_tutor_local_pin", newPin);
+
+  // Jika scriptUrl terpasang, update juga ke Google Apps Script
+  if (APP_CONFIG.scriptUrl) {
+    try {
+      fetch(`${APP_CONFIG.scriptUrl}?action=updateTutorPin&currentPin=${encodeURIComponent(current)}&newPin=${encodeURIComponent(newPin)}`);
+    } catch (e) {
+      // Abaikan
+    }
+  }
+
+  alert("PIN Tutor Anda berhasil diperbarui!");
 }
 
 function saveScriptUrl() {
@@ -1101,7 +1190,7 @@ async function testScriptConnection() {
     const res = await fetch(`${url}?action=ping`);
     const data = await res.json();
     if (data.success) {
-      alert(`Koneksi Sukses!\n\nDatabase: ${data.spreadsheetName}\nTotal Mahasiswa di Sheets: ${data.totalStudents}\nTotal Aktivitas Kuis: ${data.totalAttempts}`);
+      alert(`Koneksi Sukses!\n\nNama Database: ${data.spreadsheetName}\nTotal Mahasiswa di Sheets: ${data.totalStudents}\nTotal Aktivitas Kuis: ${data.totalAttempts}`);
     } else {
       alert("Koneksi tersambung tetapi server mengembalikan pesan: " + JSON.stringify(data));
     }
@@ -1113,7 +1202,7 @@ async function testScriptConnection() {
 function exportStudentsCsv() {
   let allStudents = JSON.parse(localStorage.getItem("ut_lms_all_students") || "[]");
   if (allStudents.length === 0) {
-    alert("Tidak ada data untuk diekspor.");
+    alert("Tidak ada data mahasiswa untuk diekspor.");
     return;
   }
 

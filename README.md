@@ -38,7 +38,7 @@ Aplikasi ini siap diunggah ke **GitHub** dan dijalankan langsung melalui **GitHu
 
 6. **Panel Khusus Tutor (Keamanan & Privasi Database)**:
    - Mahasiswa **tidak dapat** mengakses lembar Google Spreadsheet database secara langsung.
-   - Tutor dapat masuk ke **Panel Tutor** menggunakan PIN rahasia (default: `tutor123`).
+   - Tutor dapat masuk ke **Panel Tutor** menggunakan PIN rahasia pribadi yang dapat diatur secara mandiri.
    - Tautan langsung membuka Google Spreadsheet Database.
    - Rekap tabel seluruh mahasiswa, pemantauan kemajuan belajar, dan tombol **Unduh Rekap Nilai (CSV/Excel)**.
 
@@ -64,7 +64,7 @@ Database menggunakan Google Spreadsheet:
    - **Who has access**: `Anyone` *(PENTING: pilih Anyone agar GitHub Pages dapat mengirim nilai)*
 8. Klik **Deploy**. Jika muncul permintaan izin otorisasi Google (*Authorization Required*), klik *Review Permissions* ➔ pilih akun Anda ➔ klik *Advanced* ➔ klik *Go to Untitled project (unsafe)* ➔ klik *Allow*.
 9. Salin **Web app URL** yang dihasilkan (contoh: `https://script.google.com/macros/s/AKfycb.../exec`).
-10. Masuk ke LMS pada tab **Panel Tutor** ➔ masukkan PIN `tutor123` ➔ tempelkan Web app URL tersebut ke kotak konfigurasi dan klik **Simpan URL**. Database kini aktif 100%!
+10. Masuk ke LMS pada tab **Panel Tutor** ➔ masukkan PIN rahasia Anda ➔ tempelkan Web app URL tersebut ke kotak konfigurasi dan klik **Simpan URL**. Database kini aktif 100%!
 
 ---
 
@@ -134,7 +134,7 @@ classroom-lang/
   - Password Awal: NIM (contoh: `858012345`)
 - **Akses Tutor**:
   - Tombol **Panel Tutor** di bilah navigasi atas.
-  - PIN Default: `tutor123` (dapat disesuaikan di `google-apps-script/Code.gs` dan `js/app.js`).
+  - PIN Keamanan: Dapat diatur sendiri secara aman saat pertama kali membuka Panel Tutor atau via Google Script Properties (tidak tersimpan di kode repositori).
 
 ---
 *Dikembangkan dengan penuh dedikasi untuk memajukan kompetensi Calon Guru Sekolah Dasar Indonesia melalui Program Studi S1 PGSD Universitas Terbuka.*

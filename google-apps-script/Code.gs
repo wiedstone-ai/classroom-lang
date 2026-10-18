@@ -6,20 +6,42 @@
  * 1. Buka spreadsheet: https://docs.google.com/spreadsheets/d/1ETjJYbWnNVIfYhzAdx0gs77c73k6CsRW_-9-ZU4gQsc
  * 2. Klik menu 'Extensions' (Ekstensi) -> 'Apps Script'.
  * 3. Hapus kode default, lalu tempel (paste) seluruh isi kode file ini.
- * 4. Klik 'Save' (ikon disket).
- * 5. Klik tombol 'Deploy' (Terapkan) di kanan atas -> 'New deployment' (Penerapan baru).
- * 6. Pilih jenis: 'Web app' (Aplikasi Web).
- * 7. Konfigurasi:
- *    - Description: "LMS Backend API v1"
+ * 4. Untuk mengatur PIN Tutor rahasia Anda:
+ *    - Jalankan fungsi 'setupTutorPin' di editor ini, ATAU
+ *    - Atur di menu 'Project Settings' (ikon gerigi) -> 'Script Properties' -> Add: TUTOR_PIN
+ * 5. Klik 'Save' (ikon disket).
+ * 6. Klik tombol 'Deploy' (Terapkan) di kanan atas -> 'New deployment' (Penerapan baru).
+ * 7. Pilih jenis: 'Web app' (Aplikasi Web).
+ * 8. Konfigurasi:
+ *    - Description: "LMS Backend API v2"
  *    - Execute as: "Me" (Saya / akun Google Anda)
  *    - Who has access: "Anyone" (Siapa saja - agar bisa diakses dari GitHub Pages)
- * 8. Klik 'Deploy'. Berikan izin otorisasi jika diminta.
- * 9. Salin "Web app URL" (URL Aplikasi Web) yang dihasilkan, lalu masukkan ke konfigurasi LMS!
+ * 9. Klik 'Deploy'. Berikan izin otorisasi jika diminta.
+ * 10. Salin "Web app URL" (URL Aplikasi Web) yang dihasilkan, lalu masukkan ke Panel Tutor LMS!
  */
 
 const SHEET_STUDENTS = "Students";
 const SHEET_SCORES = "Scores";
-const TUTOR_SECRET_PIN = "tutor123"; // PIN akses tutor dashboard
+
+/**
+ * Mendapatkan PIN Tutor dari Script Properties yang tersimpan aman di Google Cloud,
+ * sehingga PIN rahasia Anda TIDAK PERNAH tampak di GitHub atau frontend web.
+ */
+function getTutorPin() {
+  const props = PropertiesService.getScriptProperties();
+  const savedPin = props.getProperty("TUTOR_PIN");
+  return savedPin ? String(savedPin).trim() : "";
+}
+
+/**
+ * Jalankan fungsi ini satu kali di editor Apps Script jika Anda ingin mengatur atau mereset PIN Tutor:
+ */
+function setupTutorPin() {
+  // Ganti nilai di bawah ini dengan PIN rahasia pilihan Anda sebelum menekan tombol 'Run'
+  const PIN_BARU_ANDA = "123456"; 
+  PropertiesService.getScriptProperties().setProperty("TUTOR_PIN", PIN_BARU_ANDA);
+  Logger.log("PIN Tutor berhasil disimpan secara aman di Google Script Properties!");
+}
 
 function getSpreadsheet() {
   return SpreadsheetApp.getActiveSpreadsheet();
@@ -62,23 +84,17 @@ function doPost(e) {
 }
 
 function handleRequest(e) {
-  const headers = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type"
-  };
-  
   try {
     const { studentSheet, scoreSheet } = initSheets();
     let params = e && e.parameter ? e.parameter : {};
     
-    // Check if body contains JSON
+    // Cek jika body berupa JSON (POST)
     if (e && e.postData && e.postData.contents) {
       try {
         const body = JSON.parse(e.postData.contents);
         params = Object.assign({}, params, body);
       } catch (err) {
-        // use query params
+        // Abaikan jika bukan JSON
       }
     }
     
@@ -91,8 +107,41 @@ function handleRequest(e) {
         message: "LMS Classroom English Backend is active & ready!",
         spreadsheetName: getSpreadsheet().getName(),
         totalStudents: Math.max(0, studentSheet.getLastRow() - 1),
-        totalAttempts: Math.max(0, scoreSheet.getLastRow() - 1)
+        totalAttempts: Math.max(0, scoreSheet.getLastRow() - 1),
+        hasTutorPinConfigured: getTutorPin() !== ""
       };
+    }
+    else if (action === "verifyTutorPin") {
+      const inputPin = String(params.pin || params.tutorPin || "").trim();
+      const actualPin = getTutorPin();
+      
+      // Jika belum diset di Script Properties, perbolehkan tutor mengatur PIN pertama kali
+      if (!actualPin) {
+        if (inputPin.length >= 4) {
+          PropertiesService.getScriptProperties().setProperty("TUTOR_PIN", inputPin);
+          response = { success: true, verified: true, message: "PIN Tutor baru berhasil diatur dan disimpan secara aman!" };
+        } else {
+          response = { success: false, verified: false, message: "PIN belum diatur. Masukkan minimal 4 karakter untuk membuat PIN baru." };
+        }
+      } else if (inputPin === actualPin) {
+        response = { success: true, verified: true, message: "Verifikasi PIN Tutor berhasil." };
+      } else {
+        response = { success: false, verified: false, message: "PIN Tutor salah." };
+      }
+    }
+    else if (action === "updateTutorPin") {
+      const currentPin = String(params.currentPin || "").trim();
+      const newPin = String(params.newPin || "").trim();
+      const actualPin = getTutorPin();
+      
+      if (actualPin && currentPin !== actualPin) {
+        response = { success: false, message: "PIN lama salah." };
+      } else if (!newPin || newPin.length < 4) {
+        response = { success: false, message: "PIN baru minimal 4 karakter." };
+      } else {
+        PropertiesService.getScriptProperties().setProperty("TUTOR_PIN", newPin);
+        response = { success: true, message: "PIN Tutor berhasil diperbarui secara aman." };
+      }
     }
     else if (action === "register") {
       response = registerStudent(studentSheet, params);
@@ -110,7 +159,14 @@ function handleRequest(e) {
       response = getSingleStudentData(studentSheet, scoreSheet, params);
     }
     else if (action === "getAllStudents") {
-      response = getAllStudentsForTutor(studentSheet, scoreSheet, params);
+      const inputPin = String(params.pin || params.tutorPin || "").trim();
+      const actualPin = getTutorPin();
+      
+      if (!actualPin || inputPin !== actualPin) {
+        response = { success: false, message: "Akses ditolak. PIN Tutor salah atau belum diatur." };
+      } else {
+        response = getAllStudentsForTutor(studentSheet);
+      }
     }
     else {
       response = { success: false, message: "Aksi tidak dikenali: " + action };
@@ -141,7 +197,7 @@ function registerStudent(sheet, p) {
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
     if (String(data[i][1]).trim() === nim) {
-      return { success: false, message: "NIM " + nim + " sudah terdaftar! Silakan login menggunakan NIM Anda." };
+      return { success: false, message: "NIM " + nim + " sudah terdaftar! Silakan gunakan menu Masuk (Login) dengan password NIM Anda." };
     }
   }
   
@@ -198,13 +254,13 @@ function loginStudent(studentSheet, scoreSheet, p) {
         rowIndex = i + 1;
         break;
       } else {
-        return { success: false, message: "Password salah. Password default adalah NIM Anda." };
+        return { success: false, message: "Password salah. Password awal adalah NIM Anda." };
       }
     }
   }
   
   if (!foundStudent) {
-    return { success: false, message: "NIM belum terdaftar. Silakan registrasi terlebih dahulu." };
+    return { success: false, message: "NIM " + nim + " belum terdaftar. Silakan pilih tab 'Daftar Baru' terlebih dahulu." };
   }
   
   // Update LastActive
@@ -225,7 +281,7 @@ function loginStudent(studentSheet, scoreSheet, p) {
         moduleScores[mId] = {
           score: sc,
           status: st,
-          date: scoresData[j][0]
+          date: Utilities.formatDate(new Date(scoresData[j][0]), "GMT+7", "dd/MM/yyyy")
         };
       }
       if (st === "Passed" && !passedModules.includes(mId)) {
@@ -239,7 +295,7 @@ function loginStudent(studentSheet, scoreSheet, p) {
   
   return {
     success: true,
-    message: "Login berhasil! Selamat belajar, " + foundStudent.nama,
+    message: "Login berhasil! Selamat datang kembali, " + foundStudent.nama,
     student: foundStudent
   };
 }
@@ -249,8 +305,6 @@ function submitStudentScore(studentSheet, scoreSheet, p) {
   const nim = String(p.nim || "").trim();
   const moduleId = Number(p.moduleId);
   const score = Number(p.score);
-  const totalQuestions = Number(p.totalQuestions || 3);
-  const correctCount = Number(p.correctCount || 0);
   
   if (!nim || isNaN(moduleId) || isNaN(score)) {
     return { success: false, message: "Data kuis tidak lengkap." };
@@ -272,7 +326,7 @@ function submitStudentScore(studentSheet, scoreSheet, p) {
   }
   
   if (studentRow === -1) {
-    return { success: false, message: "Mahasiswa tidak ditemukan." };
+    return { success: false, message: "Mahasiswa tidak ditemukan di database." };
   }
   
   const isPassed = score >= 70;
@@ -282,18 +336,10 @@ function submitStudentScore(studentSheet, scoreSheet, p) {
   // Hitung jumlah attempt modul ini
   const scData = scoreSheet.getDataRange().getValues();
   let attempts = 1;
-  let bestScore = score;
-  let alreadyPassed = false;
   
   for (let j = 1; j < scData.length; j++) {
     if (String(scData[j][1]).trim() === nim && Number(scData[j][4]) === moduleId) {
       attempts++;
-      if (Number(scData[j][5]) > bestScore) {
-        bestScore = Number(scData[j][5]);
-      }
-      if (String(scData[j][6]) === "Passed") {
-        alreadyPassed = true;
-      }
     }
   }
   
@@ -309,8 +355,7 @@ function submitStudentScore(studentSheet, scoreSheet, p) {
     attempts
   ]);
   
-  // Hitung ulang Total Score & Modules Passed untuk mahasiswa
-  // Ambil skor terbaik untuk tiap modul 1-19
+  // Ambil skor tertinggi untuk tiap modul
   const updatedScData = scoreSheet.getDataRange().getValues();
   const highestScores = {};
   const passedList = [];
@@ -399,7 +444,6 @@ function getLeaderboardData(sheet, p) {
     return b.totalScore - a.totalScore;
   });
   
-  // Berikan ranking
   list.forEach((item, idx) => {
     item.rank = idx + 1;
   });
@@ -436,7 +480,6 @@ function getSingleStudentData(studentSheet, scoreSheet, p) {
     return { success: false, message: "Mahasiswa tidak ditemukan." };
   }
   
-  // Detail tiap modul
   const scData = scoreSheet.getDataRange().getValues();
   const moduleDetails = {};
   for (let j = 1; j < scData.length; j++) {
@@ -450,7 +493,7 @@ function getSingleStudentData(studentSheet, scoreSheet, p) {
         moduleDetails[mId] = {
           score: sc,
           status: st,
-          date: dt
+          date: Utilities.formatDate(new Date(dt), "GMT+7", "dd/MM/yyyy")
         };
       }
     }
@@ -466,12 +509,7 @@ function getSingleStudentData(studentSheet, scoreSheet, p) {
 }
 
 // 6. GET ALL STUDENTS (TUTOR DASHBOARD)
-function getAllStudentsForTutor(studentSheet, scoreSheet, p) {
-  const pin = String(p.tutorPin || "").trim();
-  if (pin !== TUTOR_SECRET_PIN) {
-    return { success: false, message: "Akses ditolak. PIN Tutor salah." };
-  }
-  
+function getAllStudentsForTutor(studentSheet) {
   const sData = studentSheet.getDataRange().getValues();
   const students = [];
   
