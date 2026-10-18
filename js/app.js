@@ -38,6 +38,7 @@ const AppState = {
 
 // Inisialisasi saat halaman dimuat
 document.addEventListener("DOMContentLoaded", () => {
+  sessionStorage.removeItem("ut_tutor_auth"); // Selalu pastikan Panel Tutor dalam keadaan terkunci setiap kali halaman dibuka
   loadLocalSession();
   initEventListeners();
   renderApp();
@@ -279,11 +280,16 @@ async function handleLogin(e) {
 function handleLogout() {
   if (confirm("Apakah Anda yakin ingin keluar dari akun ini?")) {
     AppState.currentUser = null;
+
+    // Bersihkan seluruh data pengguna & sesi lokal
     localStorage.removeItem("ut_lms_user");
+    localStorage.removeItem("ut_lms_all_students");
+    sessionStorage.clear(); // Hapus otorisasi tutor dan semua sesi
+
     AppState.activeView = "dashboard";
     renderApp();
     syncLeaderboard();
-    alert("Anda telah berhasil keluar (logout).");
+    alert("Anda telah berhasil keluar (logout). Sesi lokal telah dibersihkan.");
   }
 }
 
@@ -292,6 +298,11 @@ function handleLogout() {
 // ==========================================
 
 function switchView(viewName) {
+  // Jika berpindah dari panel tutor ke halaman lain, kunci kembali panel tutor
+  if (AppState.activeView === "tutor" && viewName !== "tutor") {
+    sessionStorage.removeItem("ut_tutor_auth");
+  }
+
   // Jika mahasiswa sedang login, cegah membuka panel tutor!
   if (viewName === "tutor" && AppState.currentUser) {
     alert("Panel Tutor hanya diperuntukkan bagi Pengajar/Tutor. Mahasiswa tidak memiliki akses ke Panel Tutor.");
@@ -341,11 +352,19 @@ function updateNavbar() {
   // Sembunyikan Panel Tutor di menu jika mahasiswa sedang login
   const tutorNavItem = document.getElementById("navItemTutor");
   if (tutorNavItem) {
-    tutorNavItem.style.display = user ? "none" : "block";
+    if (user) {
+      tutorNavItem.style.setProperty("display", "none", "important");
+    } else {
+      tutorNavItem.style.removeProperty("display");
+    }
   } else {
     const tutorLink = document.querySelector('.nav-link[data-view="tutor"]');
     if (tutorLink && tutorLink.parentElement) {
-      tutorLink.parentElement.style.display = user ? "none" : "block";
+      if (user) {
+        tutorLink.parentElement.style.setProperty("display", "none", "important");
+      } else {
+        tutorLink.parentElement.style.removeProperty("display");
+      }
     }
   }
 
