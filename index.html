@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LMS Classroom English - Calon Guru SD | Universitas Terbuka</title>
+  <meta name="description" content="Learning Management System Classroom English untuk Calon Guru SD Program Studi PGSD Universitas Terbuka. Pelajari 19 modul bahasa kelas interaktif, video, modul, kuis evaluasi, transkrip capaian, leaderboard, dan sertifikat kelulusan.">
+  <meta name="keywords" content="Classroom English, Guru SD, PGSD, Universitas Terbuka, Bahasa Kelas, Pelatihan Guru, LMS UT">
+  
+  <!-- Favicon -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎓</text></svg>">
+
+  <!-- Google Fonts: Inter & Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800;900&display=swap" rel="stylesheet">
+
+  <!-- CSS Stylesheet -->
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+  <!-- TOP NAVBAR -->
+  <header class="navbar no-print">
+    <div class="nav-container">
+      <a href="javascript:void(0)" class="nav-brand" onclick="switchView('dashboard')">
+        <div class="ut-logo-badge">UT</div>
+        <div class="brand-text">
+          <h1>Classroom English LMS</h1>
+          <p>Program Studi PGSD • Universitas Terbuka</p>
+        </div>
+      </a>
+
+      <nav>
+        <ul class="nav-menu">
+          <li><button class="nav-link active" data-view="dashboard">🏠 Beranda & Modul</button></li>
+          <li><button class="nav-link" data-view="leaderboard">🏆 Papan Peringkat</button></li>
+          <li><button class="nav-link" data-view="transcript">📋 Capaian & Transkrip</button></li>
+          <li><button class="nav-link" data-view="certificate">🎖️ Sertifikat</button></li>
+          <li><button class="nav-link" data-view="tutor">⚙️ Panel Tutor</button></li>
+        </ul>
+      </nav>
+
+      <div class="nav-user" id="navUserArea">
+        <!-- Injected dynamically by app.js -->
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN APPLICATION WRAPPER -->
+  <main class="main-wrapper">
+
+    <!-- ========================================================
+         VIEW 1: DASHBOARD & MODULES GRID
+         ======================================================== -->
+    <section id="view-dashboard" class="view-section">
+      <!-- Hero Banner -->
+      <div class="hero-banner">
+        <div class="hero-content">
+          <div class="hero-tag">
+            <span>✨</span> Pelatihan Bahasa Inggris Calon Guru SD
+          </div>
+          <h2>Selamat Datang, <span id="dashStudentName">Calon Guru SD</span>!</h2>
+          <p>
+            Kuasai 19 modul praktis <strong>Classroom Language</strong> untuk menciptakan suasana kelas bahasa Inggris yang hidup, ramah, dan interaktif bagi murid Sekolah Dasar.
+          </p>
+
+          <div class="progress-container">
+            <div class="progress-header">
+              <span>Kemajuan Belajar Anda</span>
+              <span id="dashProgressPercent" style="color:var(--accent-gold); font-size:1.1rem;">0%</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill" id="dashProgressBar"></div>
+            </div>
+            <div class="progress-stats">
+              <span id="dashPassedCount">0 dari 19 Modul Selesai</span>
+              <span>•</span>
+              <span id="dashTotalScore">Total Nilai: 0</span>
+              <span>•</span>
+              <span>Batas Lulus: 70% per Modul</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bonus Banner: Kursi Panas -->
+      <div style="background:linear-gradient(135deg, #fef3c7, #fffbeb); border:1.5px solid #fde68a; border-radius:var(--radius-lg); padding:1.25rem 1.5rem; margin-bottom:2rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem; box-shadow:var(--shadow-sm);">
+        <div>
+          <span style="background:#f59e0b; color:#fff; font-size:0.7rem; font-weight:700; padding:0.2rem 0.5rem; border-radius:4px; text-transform:uppercase;">Materi Pengayaan</span>
+          <h4 style="color:#92400e; margin:0.3rem 0 0.1rem;">Strategi Penguatan Literasi: Bermain "Kursi Panas" (Hot Seat)</h4>
+          <p style="font-size:0.85rem; color:#b45309; margin:0;">Tersedia dokumen panduan strategi membaca mendalam untuk siswa kelas tinggi SD.</p>
+        </div>
+        <a href="docs/Bermain%20%E2%80%9CKursi%20Panas%E2%80%9D%20untuk%20Meningkatkan%20Literasi%20Murid.docx.pdf" target="_blank" class="btn btn-gold btn-sm">
+          📖 Baca Modul Kursi Panas (PDF)
+        </a>
+      </div>
+
+      <!-- Section Title -->
+      <div class="section-header">
+        <div>
+          <h3>📚 Kurikulum Pelatihan (19 Modul Terstruktur)</h3>
+          <p style="font-size:0.85rem; color:var(--text-muted); margin:0;">
+            Selesaikan modul secara berurutan. Lulus kuis minimal 70% untuk membuka modul berikutnya.
+          </p>
+        </div>
+      </div>
+
+      <!-- Grid of 19 Modules -->
+      <div class="modules-grid" id="modulesGrid">
+        <!-- Rendered dynamically by app.js -->
+      </div>
+    </section>
+
+    <!-- ========================================================
+         VIEW 2: STUDY SECTION (VIDEO, DOCUMENT, QUIZ)
+         ======================================================== -->
+    <section id="view-study" class="view-section" style="display:none;">
+      <div style="margin-bottom:1rem;">
+        <button class="btn btn-outline btn-sm" onclick="switchView('dashboard')">
+          ← Kembali ke Daftar Modul
+        </button>
+      </div>
+
+      <div class="study-section">
+        <div class="study-header">
+          <div>
+            <h3 id="studyModuleTitle">Modul Pembelajaran</h3>
+            <div id="studyModuleSub" style="font-size:0.85rem; opacity:0.85; font-style:italic;"></div>
+          </div>
+          <div style="display:flex; gap:0.5rem;">
+            <button class="btn btn-outline-white btn-sm" onclick="switchView('dashboard')">Tutup Modul</button>
+          </div>
+        </div>
+
+        <div class="study-tabs">
+          <button class="tab-btn active" data-tab="video" onclick="switchStudyTab('video')">
+            🎥 1. Video Pelatihan
+          </button>
+          <button class="tab-btn" data-tab="reading" onclick="switchStudyTab('reading')">
+            📖 2. Materi & Panduan Modul (PDF)
+          </button>
+          <button class="tab-btn" data-tab="quiz" onclick="switchStudyTab('quiz')">
+            ✍️ 3. Kuis Evaluasi Modul
+          </button>
+        </div>
+
+        <div class="tab-content">
+          <!-- Tab 1: Video -->
+          <div class="tab-panel active" id="tabPanel-video">
+            <div class="video-wrapper" id="studyVideoContainer">
+              <!-- Video iframe injected dynamically -->
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+              <p style="font-size:0.85rem; color:var(--text-muted); margin:0;">
+                Tonton video secara seksama untuk mengamati pelafalan (pronunciation) dan gerakan tubuh (gesture).
+              </p>
+              <button class="btn btn-primary btn-sm" onclick="switchStudyTab('reading')">
+                Lanjut ke Materi & Panduan →
+              </button>
+            </div>
+          </div>
+
+          <!-- Tab 2: Reading / Document -->
+          <div class="tab-panel" id="tabPanel-reading">
+            <div id="studyDocContainer">
+              <!-- Doc details injected dynamically -->
+            </div>
+            <div style="text-align:right; margin-top:2rem;">
+              <button class="btn btn-gold btn-sm" onclick="switchStudyTab('quiz')">
+                Lanjut Kerjakan Kuis Evaluasi →
+              </button>
+            </div>
+          </div>
+
+          <!-- Tab 3: Quiz -->
+          <div class="tab-panel" id="tabPanel-quiz">
+            <div class="quiz-container" id="studyQuizContainer">
+              <!-- Quiz questions injected dynamically -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================================
+         VIEW 3: LEADERBOARD VIEW
+         ======================================================== -->
+    <section id="view-leaderboard" class="view-section" style="display:none;">
+      <div class="leaderboard-container">
+        <div class="section-header">
+          <div>
+            <h3>🏆 Papan Peringkat Real-Time</h3>
+            <p style="font-size:0.85rem; color:var(--text-muted); margin:0;">
+              Peringkat mahasiswa Calon Guru SD berdasarkan jumlah modul yang lulus dan total nilai kuis.
+            </p>
+          </div>
+          <!-- Filter Kelas -->
+          <div style="display:flex; gap:0.5rem; background:var(--bg-subtle); padding:0.3rem; border-radius:var(--radius-md);">
+            <button class="btn btn-sm lb-filter-btn active" data-kelas="ALL" onclick="filterLeaderboard('ALL')">Semua Kelas</button>
+            <button class="btn btn-sm lb-filter-btn" data-kelas="PGSD 1A" onclick="filterLeaderboard('PGSD 1A')">PGSD 1A</button>
+            <button class="btn btn-sm lb-filter-btn" data-kelas="PGSD 1B" onclick="filterLeaderboard('PGSD 1B')">PGSD 1B</button>
+          </div>
+        </div>
+
+        <!-- Podium Top 3 -->
+        <div class="podium-grid" id="podiumContainer">
+          <!-- Injected dynamically -->
+        </div>
+
+        <!-- Full Table -->
+        <div class="table-responsive">
+          <table class="expression-table">
+            <thead>
+              <tr>
+                <th style="width:8%; text-align:center;">Peringkat</th>
+                <th style="width:25%;">Nama Mahasiswa</th>
+                <th style="width:15%;">NIM</th>
+                <th style="width:12%;">Kelas</th>
+                <th style="width:14%; text-align:center;">Modul Lulus</th>
+                <th style="width:12%; text-align:center;">Progress</th>
+                <th style="width:14%; text-align:center;">Total Skor</th>
+                <th style="width:10%; text-align:center;">Rata-Rata</th>
+              </tr>
+            </thead>
+            <tbody id="leaderboardTableBody">
+              <!-- Injected dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================================
+         VIEW 4: ACADEMIC TRANSCRIPT & CAPAIAN
+         ======================================================== -->
+    <section id="view-transcript" class="view-section" style="display:none;">
+      <div id="transcriptContentArea">
+        <!-- Injected dynamically -->
+      </div>
+    </section>
+
+    <!-- ========================================================
+         VIEW 5: CERTIFICATE OF COMPLETION
+         ======================================================== -->
+    <section id="view-certificate" class="view-section" style="display:none;">
+      <div id="certificateContentArea">
+        <!-- Injected dynamically -->
+      </div>
+    </section>
+
+    <!-- ========================================================
+         VIEW 6: TUTOR PANEL (ADMIN)
+         ======================================================== -->
+    <section id="view-tutor" class="view-section" style="display:none;">
+      <div id="tutorContentArea">
+        <!-- Injected dynamically -->
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ========================================================
+       MODAL: LOGIN & REGISTRATION
+       ======================================================== -->
+  <div class="modal-overlay" id="modalAuth">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 id="authModalTitle">Akun Mahasiswa UT PGSD</h4>
+        <button class="modal-close-btn" onclick="closeModal('modalAuth')">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <div style="display:flex; border-bottom:1.5px solid var(--border); margin-bottom:1.5rem;">
+          <button id="tabAuthLogin" class="tab-btn active" style="flex:1; justify-content:center;" onclick="switchAuthTab('login')">
+            Masuk (Login)
+          </button>
+          <button id="tabAuthRegister" class="tab-btn" style="flex:1; justify-content:center;" onclick="switchAuthTab('register')">
+            Daftar Baru
+          </button>
+        </div>
+
+        <!-- Form 1: LOGIN -->
+        <form id="formLogin" onsubmit="handleLogin(event)">
+          <div class="form-group">
+            <label for="loginNim">Nomor Induk Mahasiswa (NIM):</label>
+            <input type="text" id="loginNim" class="form-control" placeholder="Contoh: 858012345" required>
+          </div>
+          <div class="form-group">
+            <label for="loginPassword">Password:</label>
+            <input type="password" id="loginPassword" class="form-control" placeholder="Default password adalah NIM Anda" required>
+            <small style="color:var(--text-muted); font-size:0.75rem;">Password awal adalah NIM Anda sendiri.</small>
+          </div>
+          <button type="submit" class="btn btn-primary" id="btnSubmitLogin" style="width:100%; margin-top:0.5rem;">
+            Masuk ke LMS
+          </button>
+        </form>
+
+        <!-- Form 2: REGISTER -->
+        <form id="formRegister" onsubmit="handleRegister(event)" style="display:none;">
+          <div class="form-group">
+            <label for="regKelas">Pilihan Kelas Tutorial:</label>
+            <select id="regKelas" class="form-control" required>
+              <option value="">-- Pilih Kelas --</option>
+              <option value="PGSD 1A">PGSD 1A</option>
+              <option value="PGSD 1B">PGSD 1B</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="regNim">Nomor Induk Mahasiswa (NIM):</label>
+            <input type="text" id="regNim" class="form-control" placeholder="Masukkan NIM UT Anda" required pattern="[0-9]{5,15}">
+            <small style="color:var(--text-muted); font-size:0.75rem;">NIM akan otomatis menjadi Username dan Password awal Anda.</small>
+          </div>
+          <div class="form-group">
+            <label for="regNama">Nama Lengkap Mahasiswa:</label>
+            <input type="text" id="regNama" class="form-control" placeholder="Contoh: Siti Rahmawati" required>
+            <small style="color:var(--text-muted); font-size:0.75rem;">Nama ini akan tercantum di Sertifikat Kelulusan resmi.</small>
+          </div>
+          <button type="submit" class="btn btn-gold" id="btnSubmitRegister" style="width:100%; margin-top:0.5rem;">
+            Daftar Sekarang
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <footer class="footer no-print">
+    <div class="footer-content">
+      <div>
+        <p style="font-weight:700; color:#fff; margin-bottom:0.2rem;">LMS Classroom English - Universitas Terbuka</p>
+        <p style="margin:0; opacity:0.8;">Program Studi S1 Pendidikan Guru Sekolah Dasar (PGSD) • FKIP UT</p>
+      </div>
+      <div style="text-align:right;">
+        <p style="margin:0; opacity:0.8;">Database: Google Sheets Terintegrasi</p>
+        <p style="margin:0; font-size:0.75rem; color:var(--accent-gold);">Siap Diterapkan ke GitHub Pages</p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- SCRIPT FILES -->
+  <script src="js/data-modules.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
