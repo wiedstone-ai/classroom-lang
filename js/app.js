@@ -33,12 +33,14 @@ const AppState = {
   activeTab: "video",
   leaderboardFilter: "ALL",
   leaderboardData: [],
-  isBackendConnected: false
+  isBackendConnected: false,
+  isTutorAuthenticated: false // In-memory only: tidak pernah disimpan ke browser storage!
 };
 
 // Inisialisasi saat halaman dimuat
 document.addEventListener("DOMContentLoaded", () => {
-  sessionStorage.removeItem("ut_tutor_auth"); // Selalu pastikan Panel Tutor dalam keadaan terkunci setiap kali halaman dibuka
+  sessionStorage.clear(); // Bersihkan seluruh sesi lama
+  AppState.isTutorAuthenticated = false; // Panel Tutor pasti terkunci
   loadLocalSession();
   initEventListeners();
   renderApp();
@@ -280,16 +282,16 @@ async function handleLogin(e) {
 function handleLogout() {
   if (confirm("Apakah Anda yakin ingin keluar dari akun ini?")) {
     AppState.currentUser = null;
+    AppState.isTutorAuthenticated = false;
 
-    // Bersihkan seluruh data pengguna & sesi lokal
-    localStorage.removeItem("ut_lms_user");
-    localStorage.removeItem("ut_lms_all_students");
-    sessionStorage.clear(); // Hapus otorisasi tutor dan semua sesi
+    // Bersihkan SEMUA data di localStorage & sessionStorage
+    localStorage.clear();
+    sessionStorage.clear();
 
     AppState.activeView = "dashboard";
     renderApp();
     syncLeaderboard();
-    alert("Anda telah berhasil keluar (logout). Sesi lokal telah dibersihkan.");
+    alert("Anda telah berhasil keluar (logout). Seluruh data lokal dan sesi telah dibersihkan.");
   }
 }
 
@@ -298,9 +300,10 @@ function handleLogout() {
 // ==========================================
 
 function switchView(viewName) {
-  // Jika berpindah dari panel tutor ke halaman lain, kunci kembali panel tutor
+  // Setiap kali berpindah halaman dari panel tutor, otomatis kunci kembali panel tutor
   if (AppState.activeView === "tutor" && viewName !== "tutor") {
-    sessionStorage.removeItem("ut_tutor_auth");
+    AppState.isTutorAuthenticated = false;
+    sessionStorage.clear();
   }
 
   // Jika mahasiswa sedang login, cegah membuka panel tutor!
@@ -1118,6 +1121,12 @@ function printCertificate() {
 // TUTOR / ADMIN PANEL VIEW
 // ==========================================
 
+function lockTutorPanel() {
+  AppState.isTutorAuthenticated = false;
+  sessionStorage.clear();
+  renderTutorPanel();
+}
+
 async function renderTutorPanel() {
   const container = document.getElementById("tutorContentArea");
 
@@ -1134,7 +1143,8 @@ async function renderTutorPanel() {
     return;
   }
 
-  const isAuthenticated = sessionStorage.getItem("ut_tutor_auth") === "true";
+  // Autentikasi Tutor strictly berbasis in-memory runtime flag
+  const isAuthenticated = (AppState.isTutorAuthenticated === true);
 
   if (!isAuthenticated) {
     const hasLocalPin = localStorage.getItem("ut_tutor_local_pin") !== null;
@@ -1144,13 +1154,13 @@ async function renderTutorPanel() {
         <div style="font-size:2.5rem; margin-bottom:0.75rem;">🔐</div>
         <h3 style="color:var(--primary-dark); margin-bottom:0.5rem;">Akses Khusus Tutor</h3>
         <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1.5rem;">
-          Hanya Tutor yang berhak mengakses rekap data mahasiswa, nilai kuis, dan pengelolaan spreadsheet database.
+          Hanya Tutor yang berhak mengakses rekap data mahasiswa, nilai kuis, dan pengelolaan spreadsheet database. Masukkan PIN untuk membuka panel.
         </p>
         <form onsubmit="handleTutorLogin(event)">
           <div class="form-group" style="text-align:left;">
             <label for="tutorPinInput">${!hasLocalPin ? 'Masukkan PIN Tutor Anda (Default awal: tutor123):' : 'Masukkan PIN Tutor Anda:'}</label>
             <input type="password" id="tutorPinInput" class="form-control" 
-                   placeholder="Ketik PIN rahasia Anda" required>
+                   placeholder="Ketik PIN rahasia Anda" required autofocus>
             <small style="color:var(--text-muted); font-size:0.75rem;">PIN default awal: <code>tutor123</code></small>
           </div>
           <button type="submit" class="btn btn-primary" id="btnTutorLogin" style="width:100%;">
@@ -1210,8 +1220,8 @@ async function renderTutorPanel() {
           📊 Buka Google Spreadsheet Database
         </a>
         <button class="btn btn-outline" onclick="changeTutorPinPrompt()">Ubah PIN</button>
-        <button class="btn btn-outline" onclick="sessionStorage.removeItem('ut_tutor_auth'); renderTutorPanel();">
-          Kunci Panel
+        <button class="btn btn-outline" onclick="lockTutorPanel()">
+          🔒 Kunci Panel
         </button>
       </div>
     </div>
@@ -1266,33 +1276,47 @@ async function renderTutorPanel() {
 
 async function handleTutorLogin(e) {
   e.preventDefault();
-  const pin = document.getElementById("tutorPinInput").value.trim();
+  const pinInput = document.getElementById("tutorPinInput");
+  const pin = pinInput ? pinInput.value.trim() : "";
   const submitBtn = document.getElementById("btnTutorLogin");
-  if (submitBtn) submitBtn.disabled = true;
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.innerText = "Memverifikasi PIN...";
+  }
 
-  // 1. Coba verifikasi ke Google Apps Script backend jika ada
+  // 1. Coba verifikasi ke Google Apps Script backend jika online
+  let isVerified = false;
   try {
     const res = await apiCall("verifyTutorPin", { pin: pin });
     if (res && res.success && res.verified) {
-      sessionStorage.setItem("ut_tutor_auth", "true");
-      alert(res.message || "Akses Tutor Terverifikasi.");
-      renderTutorPanel();
-      return;
+      isVerified = true;
     }
   } catch (err) {
     // Abaikan
   }
 
   // 2. Fallback verifikasi lokal PIN
-  const savedLocalPin = localStorage.getItem("ut_tutor_local_pin");
-  if (pin === savedLocalPin || pin === "tutor123") {
-    sessionStorage.setItem("ut_tutor_auth", "true");
+  if (!isVerified) {
+    const savedLocalPin = localStorage.getItem("ut_tutor_local_pin");
+    if ((savedLocalPin && pin === savedLocalPin) || pin === "tutor123") {
+      isVerified = true;
+    }
+  }
+
+  if (isVerified) {
+    AppState.isTutorAuthenticated = true;
     renderTutorPanel();
   } else {
     alert("PIN Tutor salah! Gunakan PIN Anda atau default: tutor123");
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.innerText = "Masuk ke Panel Tutor";
+    }
+    if (pinInput) {
+      pinInput.value = "";
+      pinInput.focus();
+    }
   }
-
-  if (submitBtn) submitBtn.disabled = false;
 }
 
 function changeTutorPinPrompt() {
